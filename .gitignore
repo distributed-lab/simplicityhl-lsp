@@ -1,7 +1,19 @@
-/target
-node_modules
+# rust executables files
+target/
+debug/
+
+# client executables files
+node_modules/
 out/
+
 .pnpm-debug.log
+
 *.ast 
 dist/
+
+# vscode package
 *.vsix
+
+# lock files
+Cargo.lock
+package-lock.json
