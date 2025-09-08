@@ -3,7 +3,7 @@
  * Licensed under the MIT License. See License.txt in the project root for license information.
  * ------------------------------------------------------------------------------------------ */
 import * as path from "path";
-import { ExtensionContext, workspace } from "vscode";
+import { ExtensionContext, workspace, window} from "vscode";
 import {
   Executable,
   LanguageClient,
@@ -13,8 +13,10 @@ import {
 } from "vscode-languageclient/node";
 let client: LanguageClient;
 export function activate(context: ExtensionContext) {
-  // The server is implemented in node
-  const command = process.env.SERVER_PATH || "simplicityhl-lsp";
+
+  window.showInformationMessage("SimplicityHL LSP activated!");
+ 
+  const command = "simplicityhl-lsp";
   const run: Executable = {
     command,
     options: {
@@ -31,14 +33,12 @@ export function activate(context: ExtensionContext) {
     run,
     debug: run,
   };
+  
   // Options to control the language client
   const clientOptions: LanguageClientOptions = {
-    documentSelector: [{ scheme: "file", language: "nrs" }],
-    synchronize: {
-      // Notify the server about file changes to '.clientrc files contained in the workspace
-      fileEvents: workspace.createFileSystemWatcher("**/.clientrc"),
-    },
+    documentSelector: [{ scheme: "file", language: "simplicityhl" }],
   };
+
   // Create the language client and start the client.
   client = new LanguageClient(
     "simplicityhl-lsp",
@@ -46,6 +46,7 @@ export function activate(context: ExtensionContext) {
     serverOptions,
     clientOptions,
   );
+  
   // Start the client. This will also launch the server
   client.start();
 }

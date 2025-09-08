@@ -1,26 +1,29 @@
 {
-	"name": "lsp-sample",
-	"description": "A language server example",
-	"author": "Microsoft Corporation",
+	"name": "simplicityhl-lsp",
+	"description": "A language server for SimplicityHL language",
+	"author": "Distributed Lab",
 	"license": "MIT",
 	"version": "1.0.0",
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/Microsoft/vscode-extension-samples"
-	},
-	"publisher": "vscode-samples",
 	"categories": [],
 	"keywords": [
 		"multi-root ready"
 	],
 	"engines": {
-		"vscode": "^1.100.0"
+		"vscode": "^1.66.0"
 	},
 	"activationEvents": [
-		"onLanguage:plaintext"
+		"onLanguage:simplicityhl"
 	],
 	"main": "./client/out/extension",
 	"contributes": {
+    "languages": [
+      {
+        "id": "simplicityhl",
+        "extensions": [
+          ".simf"
+        ]
+      }
+    ],
 		"configuration": {
 			"type": "object",
 			"title": "Example configuration",
