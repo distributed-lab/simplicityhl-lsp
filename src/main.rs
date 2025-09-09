@@ -82,17 +82,24 @@ impl LanguageServer for Backend {
 
         Ok(None)
     }
-
-    async fn did_open(&self, _: DidOpenTextDocumentParams) {
-        self.client
-            .log_message(MessageType::INFO, "file opened!")
-            .await;
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        self.on_change(TextDocumentItem {
+            uri: params.text_document.uri,
+            text: params.text_document.text,
+            version: params.text_document.version,
+            language_id: params.text_document.language_id,
+        })
+        .await
     }
 
-    async fn did_change(&self, _: DidChangeTextDocumentParams) {
-        self.client
-            .log_message(MessageType::INFO, "file changed!")
-            .await;
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        self.on_change(TextDocumentItem {
+            text: params.content_changes[0].text.clone(),
+            uri: params.text_document.uri,
+            version: params.text_document.version,
+            language_id: "simf".to_string(),
+        })
+        .await
     }
 
     async fn did_save(&self, _: DidSaveTextDocumentParams) {
@@ -115,6 +122,28 @@ impl LanguageServer for Backend {
     }
 }
 
+impl Backend {
+    async fn on_change(&self, params: TextDocumentItem) {
+        let diagnostics = vec![Diagnostic::new_simple(
+            Range::new(
+                Position {
+                    line: 0,
+                    character: 0,
+                },
+                Position {
+                    line: 0,
+                    character: 50,
+                },
+            ),
+            "This is first line of the document".to_string(),
+        )];
+
+        self.client
+            .publish_diagnostics(params.uri.clone(), diagnostics, Some(params.version))
+            .await;
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let (stdin, stdout) = (tokio::io::stdin(), tokio::io::stdout());
@@ -122,4 +151,3 @@ async fn main() {
     let (service, socket) = LspService::new(|client| Backend { client });
     Server::new(stdin, stdout, socket).serve(service).await;
 }
-
