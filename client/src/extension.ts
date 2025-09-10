@@ -3,7 +3,7 @@
  * Licensed under the MIT License. See License.txt in the project root for license information.
  * ------------------------------------------------------------------------------------------ */
 import * as path from "path";
-import { ExtensionContext, workspace, window} from "vscode";
+import { ExtensionContext, window, workspace } from "vscode";
 import {
   Executable,
   LanguageClient,
@@ -11,18 +11,26 @@ import {
   ServerOptions,
   TransportKind,
 } from "vscode-languageclient/node";
+import * as cp from "child_process";
 let client: LanguageClient;
 export function activate(context: ExtensionContext) {
-
-  window.showInformationMessage("SimplicityHL LSP activated!");
- 
   const command = "simplicityhl-lsp";
+  try {
+    cp.execSync(
+      process.platform === "win32" ? `where ${command}` : `which ${command}`,
+    );
+  } catch {
+    window.showErrorMessage(
+      `LSP server "${command}" was not found in your PATH. Please install it or add it to PATH.`,
+    );
+    return;
+  }
+  window.showInformationMessage("SimplicityHL LSP activated!");
   const run: Executable = {
     command,
     options: {
       env: {
         ...process.env,
-        // eslint-disable-next-line @typescript-eslint/naming-convention
         RUST_LOG: "debug",
       },
     },
@@ -33,12 +41,10 @@ export function activate(context: ExtensionContext) {
     run,
     debug: run,
   };
-  
   // Options to control the language client
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ scheme: "file", language: "simplicityhl" }],
   };
-
   // Create the language client and start the client.
   client = new LanguageClient(
     "simplicityhl-lsp",
@@ -46,7 +52,6 @@ export function activate(context: ExtensionContext) {
     serverOptions,
     clientOptions,
   );
-  
   // Start the client. This will also launch the server
   client.start();
 }

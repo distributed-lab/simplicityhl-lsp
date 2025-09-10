@@ -55,7 +55,7 @@
 		"lint": "eslint",
 		"postinstall": "cd client && npm install && cd ..",
 		"test": "sh ./scripts/e2e.sh",
-		"package": "vsce package --no-dependencies"
+		"package": "npm upgrade && vsce package"
 	},
 	"devDependencies": {
 		"@vscode/vsce": "^3.2.1",
