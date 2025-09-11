@@ -1,14 +1,13 @@
 use serde_json::Value;
-use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::*;
-use tower_lsp::{Client, LanguageServer, LspService, Server};
+use tower_lsp_server::jsonrpc::Result;
+use tower_lsp_server::lsp_types::*;
+use tower_lsp_server::{Client, LanguageServer, LspService, Server};
 
 #[derive(Debug)]
 struct Backend {
     client: Client,
 }
 
-#[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
         Ok(InitializeResult {
@@ -124,19 +123,36 @@ impl LanguageServer for Backend {
 
 impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
-        let diagnostics = vec![Diagnostic::new_simple(
-            Range::new(
-                Position {
-                    line: 0,
-                    character: 0,
-                },
-                Position {
-                    line: 0,
-                    character: 50,
-                },
+        let diagnostics = vec![
+            Diagnostic::new_simple(
+                Range::new(
+                    Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    Position {
+                        line: 0,
+                        character: 1000,
+                    },
+                ),
+                "This is first line of the document as error".to_string(),
             ),
-            "This is first line of the document".to_string(),
-        )];
+            Diagnostic {
+                range: Range::new(
+                    Position {
+                        line: 1,
+                        character: 0,
+                    },
+                    Position {
+                        line: 1,
+                        character: 1000,
+                    },
+                ),
+                severity: Some(DiagnosticSeverity::WARNING),
+                message: "This is second line of the document as warning".to_string(),
+                ..Diagnostic::default()
+            },
+        ];
 
         self.client
             .publish_diagnostics(params.uri.clone(), diagnostics, Some(params.version))
