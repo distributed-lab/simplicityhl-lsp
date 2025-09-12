@@ -1,11 +1,28 @@
 use serde_json::Value;
+use std::fs;
+use std::str::FromStr;
+use std::sync::Arc;
+
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::lsp_types::*;
 use tower_lsp_server::{Client, LanguageServer, LspService, Server};
 
+use simplicityhl::{
+    CompiledProgram, ast,
+    error::{RichError, Span, WithFile},
+    parse,
+    parse::ParseFromStr,
+};
+
 #[derive(Debug)]
 struct Backend {
     client: Client,
+}
+
+struct TextDocumentItem<'a> {
+    uri: Uri,
+    text: &'a str,
+    version: Option<i32>,
 }
 
 impl LanguageServer for Backend {
@@ -13,8 +30,15 @@ impl LanguageServer for Backend {
         Ok(InitializeResult {
             server_info: None,
             capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::INCREMENTAL,
+                text_document_sync: Some(TextDocumentSyncCapability::Options(
+                    TextDocumentSyncOptions {
+                        open_close: Some(true),
+                        change: Some(TextDocumentSyncKind::FULL),
+                        save: Some(TextDocumentSyncSaveOptions::SaveOptions(SaveOptions {
+                            include_text: Some(true),
+                        })),
+                        ..Default::default()
+                    },
                 )),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
@@ -84,24 +108,33 @@ impl LanguageServer for Backend {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         self.on_change(TextDocumentItem {
             uri: params.text_document.uri,
-            text: params.text_document.text,
-            version: params.text_document.version,
-            language_id: params.text_document.language_id,
+            text: &params.text_document.text,
+            version: Some(params.text_document.version),
         })
         .await
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         self.on_change(TextDocumentItem {
-            text: params.content_changes[0].text.clone(),
+            text: &params.content_changes[0].text,
             uri: params.text_document.uri,
-            version: params.text_document.version,
-            language_id: "simf".to_string(),
+            version: Some(params.text_document.version),
         })
         .await
     }
 
-    async fn did_save(&self, _: DidSaveTextDocumentParams) {
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        match params.text {
+            Some(text) => {
+                self.on_change(TextDocumentItem {
+                    uri: params.text_document.uri,
+                    text: &text,
+                    version: None,
+                })
+                .await;
+            }
+            None => {}
+        }
         self.client
             .log_message(MessageType::INFO, "file saved!")
             .await;
@@ -121,42 +154,63 @@ impl LanguageServer for Backend {
     }
 }
 
-impl Backend {
-    async fn on_change(&self, params: TextDocumentItem) {
-        let diagnostics = vec![
-            Diagnostic::new_simple(
-                Range::new(
-                    Position {
-                        line: 0,
-                        character: 0,
-                    },
-                    Position {
-                        line: 0,
-                        character: 1000,
-                    },
-                ),
-                "This is first line of the document as error".to_string(),
-            ),
-            Diagnostic {
-                range: Range::new(
-                    Position {
-                        line: 1,
-                        character: 0,
-                    },
-                    Position {
-                        line: 1,
-                        character: 1000,
-                    },
-                ),
-                severity: Some(DiagnosticSeverity::WARNING),
-                message: "This is second line of the document as warning".to_string(),
-                ..Diagnostic::default()
-            },
-        ];
+fn span_to_positions(span: &Span) -> (Position, Position) {
+    (
+        Position {
+            line: span.start.line.get() as u32 - 1,
+            character: span.start.col.get() as u32 - 1,
+        },
+        Position {
+            line: span.end.line.get() as u32 - 1,
+            character: span.end.col.get() as u32 - 1,
+        },
+    )
+}
 
-        self.client
-            .publish_diagnostics(params.uri.clone(), diagnostics, Some(params.version))
-            .await;
+impl Backend {
+    fn parse_program(text: &str) -> Option<RichError> {
+        let parse_program = match parse::Program::parse_from_str(text) {
+            Ok(p) => p,
+            Err(e) => return Some(e),
+        };
+
+        match ast::Program::analyze(&parse_program).with_file(text) {
+            Ok(ast) => None,
+            Err(e) => Some(e),
+        }
+    }
+
+    async fn on_change<'a>(&self, params: TextDocumentItem<'a>) {
+        let err = Backend::parse_program(&params.text);
+
+        match err {
+            None => {
+                self.client
+                    .log_message(MessageType::INFO, &format!("errors not found!"))
+                    .await;
+                self.client
+                    .publish_diagnostics(params.uri.clone(), vec![], params.version)
+                    .await;
+            }
+            Some(err) => {
+                let (start, end) = span_to_positions(err.span());
+
+                self.client
+                    .log_message(MessageType::INFO, &format!("Get error: \n{}", err))
+                    .await;
+
+                self.client
+                    .publish_diagnostics(
+                        params.uri.clone(),
+                        vec![Diagnostic::new_simple(
+                            Range::new(start, end),
+                            err.error().to_string(),
+                        )],
+                        params.version,
+                    )
+                    .await;
+            }
+        }
     }
 }
 
