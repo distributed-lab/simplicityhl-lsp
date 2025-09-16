@@ -1,7 +1,6 @@
+use dashmap::DashMap;
+use ropey::Rope;
 use serde_json::Value;
-use std::fs;
-use std::str::FromStr;
-use std::sync::Arc;
 
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::lsp_types::*;
@@ -14,9 +13,12 @@ use simplicityhl::{
     parse::ParseFromStr,
 };
 
+mod symbol_table;
+
 #[derive(Debug)]
 struct Backend {
     client: Client,
+    document_map: DashMap<String, Rope>,
 }
 
 struct TextDocumentItem<'a> {
@@ -105,6 +107,7 @@ impl LanguageServer for Backend {
 
         Ok(None)
     }
+
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         self.on_change(TextDocumentItem {
             uri: params.text_document.uri,
@@ -181,6 +184,10 @@ impl Backend {
     }
 
     async fn on_change<'a>(&self, params: TextDocumentItem<'a>) {
+        let rope = ropey::Rope::from_str(params.text);
+        self.document_map
+            .insert(params.uri.to_string(), rope.clone());
+
         let err = Backend::parse_program(&params.text);
 
         match err {
@@ -218,6 +225,9 @@ impl Backend {
 async fn main() {
     let (stdin, stdout) = (tokio::io::stdin(), tokio::io::stdout());
 
-    let (service, socket) = LspService::new(|client| Backend { client });
+    let (service, socket) = LspService::new(|client| Backend {
+        client: client,
+        document_map: DashMap::new(),
+    });
     Server::new(stdin, stdout, socket).serve(service).await;
 }
