@@ -1,12 +1,18 @@
 {
 	"name": "simplicityhl-lsp",
 	"description": "A language server for SimplicityHL language",
-	"author": "Distributed Lab",
+	"publisher": "distributed-lab",
 	"license": "MIT",
+	"displayName": "SimplicityHL language server extension",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/distributed-lab/simplicityhl-lsp"
+	},
 	"version": "1.0.0",
 	"categories": [],
 	"keywords": [
-		"multi-root ready"
+		"Simplicity", 
+		"SimplicityHL"
 	],
 	"engines": {
 		"vscode": "^1.66.0"
