@@ -11,7 +11,7 @@ fn checksig(pk: Pubkey, sig: Signature) {
     jet::bip_0340_verify((pk, msg), sig);
 }
 
-fn recursive_covenant() {
+fn recursive_covenant(){
     assert!(jet::eq_32(jet::num_outputs(), 2));
     let this_script_hash: u256 = jet::current_script_hash();
     let output_script_hash: u256 = unwrap(jet::output_script_hash(0));
