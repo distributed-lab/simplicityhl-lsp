@@ -8,10 +8,10 @@
 		"type": "git",
 		"url": "https://github.com/distributed-lab/simplicityhl-lsp"
 	},
-	"version": "1.0.0",
+	"version": "0.0.1",
 	"categories": [],
 	"keywords": [
-		"Simplicity", 
+		"Simplicity",
 		"SimplicityHL"
 	],
 	"engines": {
@@ -20,39 +20,42 @@
 	"activationEvents": [
 		"onLanguage:simplicityhl"
 	],
-	"main": "./client/out/extension.js",
+	"main": "dist/extension.js",
 	"contributes": {
-    "languages": [
-      {
-        "id": "simplicityhl",
-        "extensions": [
-          ".simf"
-        ]
-      }
-    ],
+		"languages": [
+			{
+				"id": "simplicityhl",
+				"extensions": [
+					".simf"
+				]
+			}
+		]
 	},
 	"scripts": {
-		"vscode:prepublish": "npm run compile",
-		"compile": "tsc -b",
-		"watch": "tsc -b -w",
-		"lint": "eslint",
-		"postinstall": "cd client && npm install && cd ..",
-		"test": "sh ./scripts/e2e.sh",
-		"package": "npm upgrade && vsce package"
+		"compile": "npm run check-types && node esbuild.js",
+		"check-types": "tsc --noEmit",
+		"watch": "npm-run-all -p watch:*",
+		"watch:esbuild": "node esbuild.js --watch",
+		"watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+		"vscode:prepublish": "npm run package",
+		"package": "npm run check-types && node esbuild.js --production",
+    "vsce-package": "vsce package"
 	},
 	"devDependencies": {
-		"@vscode/vsce": "^3.2.1",
 		"@eslint/js": "^9.13.0",
 		"@stylistic/eslint-plugin": "^2.9.0",
 		"@types/mocha": "^10.0.6",
 		"@types/node": "^22",
+		"@vscode/vsce": "^3.2.1",
+		"esbuild": "^0.25.9",
 		"eslint": "^9.13.0",
 		"mocha": "^10.3.0",
+		"ts-loader": "^9.5.4",
 		"typescript": "^5.9.2",
 		"typescript-eslint": "^8.39.0"
 	},
-  "dependencies": {
-    "vscode-languageclient": "^9.0.1"
-  },
+	"dependencies": {
+		"vscode-languageclient": "^9.0.1"
+	},
 	"packageManager": "pnpm@8.15.7"
 }

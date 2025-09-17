@@ -1,6 +1,7 @@
 .vscode
-# node_modules/
+node_modules
 src/
+out/
 tsconfig.json
 webpack.config.js
 client/* 
@@ -14,3 +15,6 @@ examples/
 justfile
 rust-toolchains.toml
 *lock*
+
+esbuild.js
+
