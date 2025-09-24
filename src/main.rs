@@ -1,5 +1,3 @@
-use std::fmt::Write;
-
 use dashmap::DashMap;
 use ropey::Rope;
 use serde_json::Value;
@@ -18,12 +16,16 @@ use simplicityhl::{
     parse::ParseFromStr,
 };
 
+use simplicityhl::jet;
+use simplicityhl::simplicity::jet::Elements;
+
 #[derive(Debug)]
 struct Backend {
     client: Client,
     document_map: DashMap<String, Rope>,
     token_legend: Vec<SemanticTokenType>,
     token_map: DashMap<String, u32>,
+    jets_completion: Vec<CompletionItem>,
 }
 
 struct TextDocumentItem<'a> {
@@ -71,7 +73,7 @@ impl LanguageServer for Backend {
                 )),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
-                    trigger_characters: Some(vec![".".to_string()]),
+                    trigger_characters: Some(vec![":".to_string()]),
                     work_done_progress_options: Default::default(),
                     all_commit_characters: None,
                     ..Default::default()
@@ -177,13 +179,6 @@ impl LanguageServer for Backend {
             .await;
     }
 
-    async fn completion(&self, _: CompletionParams) -> Result<Option<CompletionResponse>> {
-        Ok(Some(CompletionResponse::Array(vec![
-            CompletionItem::new_simple("Hello".to_string(), "Some detail".to_string()),
-            CompletionItem::new_simple("Bye".to_string(), "More detail".to_string()),
-        ])))
-    }
-
     async fn semantic_tokens_full(
         &self,
         params: SemanticTokensParams,
@@ -199,6 +194,27 @@ impl LanguageServer for Backend {
             result_id: None,
             data: tokens,
         })))
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri;
+        let pos = params.text_document_position.position;
+        let map = self.document_map.get(&uri.to_string());
+
+        match map {
+            Some(text) => {
+                let line = text.lines().nth(pos.line as usize).unwrap();
+                let prefix = &line.slice(..pos.character as usize);
+
+                if prefix.as_str().unwrap().ends_with("jet::") {
+                    return Ok(Some(CompletionResponse::Array(
+                        self.jets_completion.to_owned(),
+                    )));
+                }
+            }
+            None => {}
+        }
+        Ok(Some(CompletionResponse::Array(vec![])))
     }
 }
 
@@ -216,13 +232,58 @@ fn span_to_positions(span: &Span) -> (Position, Position) {
 }
 
 impl Backend {
+    fn initialize(client: Client) -> Self {
+        let legend: Vec<SemanticTokenType> = vec![
+            "function".into(),
+            "variable".into(),
+            "keyword".into(),
+            "type".into(),
+            "parameter".into(),
+            "comment".into(),
+            "number".into(),
+            "operator".into(),
+        ];
+
+        let jets_completion = Elements::ALL
+            .iter()
+            .map(|jet| {
+                let name = jet.to_string();
+                CompletionItem {
+                    label: name.clone(),
+                    kind: Some(CompletionItemKind::FUNCTION),
+                    detail: Some(name.clone()),
+                    insert_text: Some(format!(
+                        "{}({})",
+                        name,
+                        jet::source_type(jet.clone())
+                            .iter()
+                            .enumerate()
+                            .map(|(index, item)| { format!("${{{}:{}}}", index + 1, item) })
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    )),
+                    insert_text_format: Some(InsertTextFormat::SNIPPET),
+                    ..Default::default()
+                }
+            })
+            .collect::<Vec<_>>();
+
+        Self {
+            client: client,
+            jets_completion: jets_completion,
+            document_map: DashMap::new(),
+            token_map: build_token_map(&legend),
+            token_legend: legend,
+        }
+    }
+
     async fn highlight_with_treesitter(&self, code: &str) -> Vec<SemanticToken> {
         let mut parser = tree_sitter::Parser::new();
         let language = tree_sitter_simfony::LANGUAGE;
 
         parser
             .set_language(&language.into())
-            .expect("Error loading Simfony parser");
+            .expect("Error loading SimplicityHL parser");
         let tree = parser.parse(code, None).unwrap();
 
         let query = tree_sitter::Query::new(&language.into(), include_str!("highlights.scm"))
@@ -328,22 +389,6 @@ impl Backend {
 async fn main() {
     let (stdin, stdout) = (tokio::io::stdin(), tokio::io::stdout());
 
-    let legend: Vec<SemanticTokenType> = vec![
-        "function".into(),
-        "variable".into(),
-        "keyword".into(),
-        "type".into(),
-        "parameter".into(),
-        "comment".into(),
-        "number".into(),
-        "operator".into(),
-    ];
-
-    let (service, socket) = LspService::new(|client| Backend {
-        client: client,
-        document_map: DashMap::new(),
-        token_map: build_token_map(&legend),
-        token_legend: legend,
-    });
+    let (service, socket) = LspService::new(|client| Backend::initialize(client));
     Server::new(stdin, stdout, socket).serve(service).await;
 }
