@@ -1,5 +1,3 @@
-use std::fmt::Write;
-
 use dashmap::DashMap;
 use ropey::Rope;
 use serde_json::Value;
@@ -11,6 +9,7 @@ use tower_lsp_server::{Client, LanguageServer, LspService, Server};
 use tree_sitter::{self, StreamingIterator};
 use tree_sitter_simfony;
 
+use log::debug;
 use simplicityhl::{
     ast,
     error::{RichError, Span, WithFile},
@@ -18,12 +17,17 @@ use simplicityhl::{
     parse::ParseFromStr,
 };
 
+use simplicityhl::jet;
+use simplicityhl::simplicity::jet::Elements;
+
 #[derive(Debug)]
 struct Backend {
     client: Client,
     document_map: DashMap<String, Rope>,
+    program_map: DashMap<String, Vec<parse::Function>>,
     token_legend: Vec<SemanticTokenType>,
     token_map: DashMap<String, u32>,
+    jets_completion: Vec<CompletionItem>,
 }
 
 struct TextDocumentItem<'a> {
@@ -71,14 +75,10 @@ impl LanguageServer for Backend {
                 )),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
-                    trigger_characters: Some(vec![".".to_string()]),
+                    trigger_characters: Some(vec![":".to_string()]),
                     work_done_progress_options: Default::default(),
                     all_commit_characters: None,
-                    ..Default::default()
-                }),
-                execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: vec!["dummy.do_something".to_string()],
-                    work_done_progress_options: Default::default(),
+                    completion_item: None,
                 }),
                 workspace: Some(WorkspaceServerCapabilities {
                     workspace_folders: Some(WorkspaceFoldersServerCapabilities {
@@ -87,7 +87,7 @@ impl LanguageServer for Backend {
                     }),
                     file_operations: None,
                 }),
-                semantic_tokens_provider: Some(get_token_capabilities(&self.token_legend)),
+                // semantic_tokens_provider: Some(get_token_capabilities(&self.token_legend)),
                 ..ServerCapabilities::default()
             },
             ..Default::default()
@@ -95,44 +95,20 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        self.client
-            .log_message(MessageType::INFO, "initialized!")
-            .await;
+        debug!("server initialized!")
     }
 
     async fn shutdown(&self) -> Result<()> {
         Ok(())
     }
 
-    async fn did_change_workspace_folders(&self, _: DidChangeWorkspaceFoldersParams) {
-        self.client
-            .log_message(MessageType::INFO, "workspace folders changed!")
-            .await;
-    }
+    async fn did_change_workspace_folders(&self, _: DidChangeWorkspaceFoldersParams) {}
 
-    async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {
-        self.client
-            .log_message(MessageType::INFO, "configuration changed!")
-            .await;
-    }
+    async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {}
 
-    async fn did_change_watched_files(&self, _: DidChangeWatchedFilesParams) {
-        self.client
-            .log_message(MessageType::INFO, "watched files have changed!")
-            .await;
-    }
+    async fn did_change_watched_files(&self, _: DidChangeWatchedFilesParams) {}
 
     async fn execute_command(&self, _: ExecuteCommandParams) -> Result<Option<Value>> {
-        self.client
-            .log_message(MessageType::INFO, "command executed!")
-            .await;
-
-        match self.client.apply_edit(WorkspaceEdit::default()).await {
-            Ok(res) if res.applied => self.client.log_message(MessageType::INFO, "applied").await,
-            Ok(_) => self.client.log_message(MessageType::INFO, "rejected").await,
-            Err(err) => self.client.log_message(MessageType::ERROR, err).await,
-        }
-
         Ok(None)
     }
 
@@ -166,22 +142,11 @@ impl LanguageServer for Backend {
             }
             None => {}
         }
-        self.client
-            .log_message(MessageType::INFO, "file saved!")
-            .await;
+        debug!("saved!");
     }
 
     async fn did_close(&self, _: DidCloseTextDocumentParams) {
-        self.client
-            .log_message(MessageType::INFO, "file closed!")
-            .await;
-    }
-
-    async fn completion(&self, _: CompletionParams) -> Result<Option<CompletionResponse>> {
-        Ok(Some(CompletionResponse::Array(vec![
-            CompletionItem::new_simple("Hello".to_string(), "Some detail".to_string()),
-            CompletionItem::new_simple("Bye".to_string(), "More detail".to_string()),
-        ])))
+        debug!("closed!");
     }
 
     async fn semantic_tokens_full(
@@ -200,6 +165,31 @@ impl LanguageServer for Backend {
             data: tokens,
         })))
     }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri;
+        let pos = params.text_document_position.position;
+        let map = self.document_map.get(&uri.to_string());
+        debug!("completion");
+        match map {
+            Some(text) => {
+                let line = text.lines().nth(pos.line as usize).unwrap();
+                let prefix = &line.slice(..pos.character as usize);
+
+                if prefix.as_str().unwrap().ends_with("jet::") {
+                    return Ok(Some(CompletionResponse::Array(
+                        self.jets_completion.to_owned(),
+                    )));
+                } else {
+                    return Ok(Some(CompletionResponse::Array(
+                        self.get_function_completions(&uri.to_string()),
+                    )));
+                }
+            }
+            None => {}
+        }
+        Ok(Some(CompletionResponse::Array(vec![])))
+    }
 }
 
 fn span_to_positions(span: &Span) -> (Position, Position) {
@@ -216,13 +206,91 @@ fn span_to_positions(span: &Span) -> (Position, Position) {
 }
 
 impl Backend {
+    fn initialize(client: Client) -> Self {
+        let legend: Vec<SemanticTokenType> = vec![
+            "function".into(),
+            "variable".into(),
+            "keyword".into(),
+            "type".into(),
+            "parameter".into(),
+            "comment".into(),
+            "number".into(),
+            "operator".into(),
+        ];
+
+        let jets_completion = Elements::ALL
+            .iter()
+            .map(|jet| {
+                let name = jet.to_string();
+                CompletionItem {
+                    label: name.clone(),
+                    kind: Some(CompletionItemKind::FUNCTION),
+                    detail: Some(name.clone()),
+                    insert_text: Some(format!(
+                        "{}({})",
+                        name,
+                        jet::source_type(jet.clone())
+                            .iter()
+                            .enumerate()
+                            .map(|(index, item)| { format!("${{{}:{}}}", index + 1, item) })
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )),
+                    insert_text_format: Some(InsertTextFormat::SNIPPET),
+                    ..Default::default()
+                }
+            })
+            .collect::<Vec<_>>();
+
+        Self {
+            client: client,
+            jets_completion: jets_completion,
+            document_map: DashMap::new(),
+            program_map: DashMap::new(),
+            token_map: build_token_map(&legend),
+            token_legend: legend,
+        }
+    }
+
+    fn get_function_completions(&self, uri: &String) -> Vec<CompletionItem> {
+        match self.program_map.get(uri) {
+            Some(functions) => {
+                return functions
+                    .iter()
+                    .map(|func| {
+                        let name = func.name().to_string();
+                        CompletionItem {
+                            label: name.clone(),
+                            kind: Some(CompletionItemKind::FUNCTION),
+                            detail: Some(name.clone()),
+                            insert_text: Some(format!(
+                                "{}({})",
+                                name,
+                                func.params()
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(index, item)| { format!("${{{}:{}}}", index + 1, item) })
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            )),
+                            insert_text_format: Some(InsertTextFormat::SNIPPET),
+                            ..Default::default()
+                        }
+                    })
+                    .collect();
+            }
+            _ => {}
+        }
+        vec![]
+    }
+
     async fn highlight_with_treesitter(&self, code: &str) -> Vec<SemanticToken> {
         let mut parser = tree_sitter::Parser::new();
         let language = tree_sitter_simfony::LANGUAGE;
 
         parser
             .set_language(&language.into())
-            .expect("Error loading Simfony parser");
+            .expect("Error loading SimplicityHL parser");
         let tree = parser.parse(code, None).unwrap();
 
         let query = tree_sitter::Query::new(&language.into(), include_str!("highlights.scm"))
@@ -274,11 +342,18 @@ impl Backend {
         tokens
     }
 
-    fn parse_program(text: &str) -> Option<RichError> {
+    fn parse_program(&self, text: &str, uri: &String) -> Option<RichError> {
         let parse_program = match parse::Program::parse_from_str(text) {
             Ok(p) => p,
             Err(e) => return Some(e),
         };
+
+        parse_program.items().iter().for_each(|item| match item {
+            parse::Item::Function(func) => {
+                self.program_map.get_mut(uri).unwrap().push(func.to_owned());
+            }
+            _ => {}
+        });
 
         match ast::Program::analyze(&parse_program).with_file(text) {
             Ok(_ast) => None,
@@ -290,8 +365,9 @@ impl Backend {
         let rope = ropey::Rope::from_str(params.text);
         self.document_map
             .insert(params.uri.to_string(), rope.clone());
+        self.program_map.insert(params.uri.to_string(), vec![]);
 
-        let err = Backend::parse_program(&params.text);
+        let err = self.parse_program(&params.text, &params.uri.to_string());
 
         match err {
             None => {
@@ -326,24 +402,9 @@ impl Backend {
 
 #[tokio::main]
 async fn main() {
+    env_logger::init();
     let (stdin, stdout) = (tokio::io::stdin(), tokio::io::stdout());
 
-    let legend: Vec<SemanticTokenType> = vec![
-        "function".into(),
-        "variable".into(),
-        "keyword".into(),
-        "type".into(),
-        "parameter".into(),
-        "comment".into(),
-        "number".into(),
-        "operator".into(),
-    ];
-
-    let (service, socket) = LspService::new(|client| Backend {
-        client: client,
-        document_map: DashMap::new(),
-        token_map: build_token_map(&legend),
-        token_legend: legend,
-    });
+    let (service, socket) = LspService::new(|client| Backend::initialize(client));
     Server::new(stdin, stdout, socket).serve(service).await;
 }
