@@ -2,7 +2,11 @@ use simplicityhl::jet;
 use simplicityhl::parse::Function;
 use simplicityhl::simplicity::jet::Elements;
 
-use tower_lsp_server::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat};
+use crate::jet::documentation;
+
+use tower_lsp_server::lsp_types::{
+    CompletionItem, CompletionItemKind, Documentation, InsertTextFormat,
+};
 
 #[derive(Debug)]
 pub struct CompletionProvider {
@@ -18,7 +22,18 @@ impl CompletionProvider {
                 CompletionItem {
                     label: name.clone(),
                     kind: Some(CompletionItemKind::FUNCTION),
-                    detail: Some(name.clone()),
+                    detail: Some(format!(
+                        "fn({}) -> {}",
+                        jet::source_type(jet.clone())
+                            .iter()
+                            .map(|item| { format!("{}", item) })
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        jet::target_type(jet.clone())
+                    )),
+                    documentation: Some(Documentation::String(
+                        documentation(jet.to_owned()).to_string(),
+                    )),
                     insert_text: Some(format!(
                         "{}({})",
                         name,
@@ -52,7 +67,18 @@ impl CompletionProvider {
                 CompletionItem {
                     label: name.clone(),
                     kind: Some(CompletionItemKind::FUNCTION),
-                    detail: Some(name.clone()),
+                    detail: Some(format!(
+                        "fn({}) -> {}",
+                        func.params()
+                            .iter()
+                            .map(|item| { format!("{}", item.ty()) })
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        match func.ret() {
+                            Some(ret) => format!("{}", ret),
+                            None => "()".to_string(),
+                        }
+                    )),
                     insert_text: Some(format!(
                         "{}({})",
                         name,

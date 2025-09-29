@@ -1,5 +1,6 @@
 mod backend;
 mod completion;
+mod jet;
 // mod tokens;
 
 use backend::Backend;
