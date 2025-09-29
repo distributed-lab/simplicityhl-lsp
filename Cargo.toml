@@ -1,6 +1,6 @@
 [package]
 name = "simplicityhl-lsp"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 
 [dependencies]
@@ -10,7 +10,8 @@ tower-lsp-server = "0.22.1"
 simplicityhl = { git = "https://github.com/distributed-lab/SimplicityHL.git", version = "0.2.0" }
 dashmap = "6.1.0"
 ropey = "1.6.1"
-tree-sitter-simfony = { git = "https://github.com/distributed-lab/tree-sitter-simfony.git", version = "0.1.0" }
-tree-sitter = "0.25.9"
 log = "0.4.28"
 env_logger = "0.11.8"
+
+# tree-sitter = "0.25.9"
+# tree-sitter-simfony = { git = "https://github.com/distributed-lab/tree-sitter-simfony.git", version = "0.1.0" }
