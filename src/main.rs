@@ -1,7 +1,6 @@
 mod backend;
 mod completion;
 mod jet;
-// mod tokens;
 
 use backend::Backend;
 use tower_lsp_server::{LspService, Server};

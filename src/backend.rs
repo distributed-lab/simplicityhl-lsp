@@ -16,9 +16,6 @@ use simplicityhl::{
 
 use crate::completion::CompletionProvider;
 
-// currently have no use in language server
-// use crate::tokens::TokenProvider;
-
 #[derive(Debug)]
 struct Document {
     functions: Vec<parse::Function>,
@@ -31,7 +28,6 @@ pub struct Backend {
 
     document_map: DashMap<String, Document>,
 
-    // token_provider: TokenProvider,
     completion_provider: CompletionProvider,
 }
 
@@ -70,7 +66,6 @@ impl LanguageServer for Backend {
                     }),
                     file_operations: None,
                 }),
-                // semantic_tokens_provider: Some(get_token_capabilities(&self.token_legend)),
                 ..ServerCapabilities::default()
             },
             ..Default::default()
@@ -137,17 +132,6 @@ impl LanguageServer for Backend {
         _: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
         Ok(None)
-        // let uri = params.text_document.uri;
-        // let text = match self.document_map.get(uri.as_str()) {
-        //     Some(document) => document.text.to_string(),
-        //     None => "".to_string(),
-        // };
-        // let tokens = self.token_provider.highlight_with_treesitter(&text);
-        //
-        // Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
-        //     result_id: None,
-        //     data: tokens,
-        // })))
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
@@ -182,7 +166,6 @@ impl Backend {
         Self {
             client: client,
             document_map: DashMap::new(),
-            // token_provider: TokenProvider::new(),
             completion_provider: CompletionProvider::new(),
         }
     }
