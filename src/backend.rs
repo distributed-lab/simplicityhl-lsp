@@ -236,6 +236,7 @@ impl Backend {
     }
 }
 
+// TODO: document magic function 
 fn span_to_positions(span: &Span) -> (Position, Position) {
     (
         Position {

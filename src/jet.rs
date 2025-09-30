@@ -1,3 +1,5 @@
+// TODO: add global linters disable for fmt and clippy 
+
 // copied from https://github.com/BlockstreamResearch/SimplicityHL/blob/master/codegen/src/jet.rs
 
 use simplicityhl::simplicity::jet::Elements;

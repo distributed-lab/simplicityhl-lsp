@@ -1,3 +1,5 @@
+// TODO: Add here: #![warn(clippy::all, clippy::pedantic)] and resolve all warnings
+
 mod backend;
 mod completion;
 mod jet;

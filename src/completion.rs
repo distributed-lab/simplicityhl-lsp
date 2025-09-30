@@ -13,6 +13,7 @@ pub struct CompletionProvider {
     jets_completion: Vec<CompletionItem>,
 }
 
+// TODO: too many nested blocks (refactor) 
 impl CompletionProvider {
     pub fn new() -> Self {
         let jets_completion = Elements::ALL
