@@ -2,8 +2,17 @@ use dashmap::DashMap;
 use ropey::Rope;
 use serde_json::Value;
 
-use tower_lsp_server::jsonrpc::Result;
-use tower_lsp_server::lsp_types::*;
+use tower_lsp_server::jsonrpc::{Error, Result};
+use tower_lsp_server::lsp_types::{
+    CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
+    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, ExecuteCommandParams, InitializeParams, InitializeResult,
+    InitializedParams, MessageType, OneOf, Position, Range, SaveOptions, SemanticTokensParams,
+    SemanticTokensResult, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, Uri, WorkDoneProgressOptions,
+    WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+};
 use tower_lsp_server::{Client, LanguageServer};
 
 use log::debug;
@@ -55,7 +64,7 @@ impl LanguageServer for Backend {
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec![":".to_string()]),
-                    work_done_progress_options: Default::default(),
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
                     all_commit_characters: None,
                     completion_item: None,
                 }),
@@ -68,12 +77,11 @@ impl LanguageServer for Backend {
                 }),
                 ..ServerCapabilities::default()
             },
-            ..Default::default()
         })
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        debug!("server initialized!")
+        debug!("server initialized!");
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -96,7 +104,7 @@ impl LanguageServer for Backend {
             text: &params.text_document.text,
             version: Some(params.text_document.version),
         })
-        .await
+        .await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -105,21 +113,19 @@ impl LanguageServer for Backend {
             uri: params.text_document.uri,
             version: Some(params.text_document.version),
         })
-        .await
+        .await;
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        match params.text {
-            Some(text) => {
-                self.on_change(TextDocumentItem {
-                    uri: params.text_document.uri,
-                    text: &text,
-                    version: None,
-                })
-                .await;
-            }
-            None => {}
+        if let Some(text) = params.text {
+            self.on_change(TextDocumentItem {
+                uri: params.text_document.uri,
+                text: &text,
+                version: None,
+            })
+            .await;
         }
+
         debug!("saved!");
     }
 
@@ -139,23 +145,18 @@ impl LanguageServer for Backend {
         let pos = params.text_document_position.position;
         let map = self.document_map.get(&uri.to_string());
         debug!("completion");
-        match map {
-            Some(document) => {
-                let line = document.text.lines().nth(pos.line as usize).unwrap();
-                let prefix = &line.slice(..pos.character as usize);
+        if let Some(document) = map {
+            let line = document.text.lines().nth(pos.line as usize).unwrap();
+            let prefix = &line.slice(..pos.character as usize);
 
-                if prefix.as_str().unwrap().ends_with("jet::") {
-                    return Ok(Some(CompletionResponse::Array(
-                        self.completion_provider.get_jets(),
-                    )));
-                } else {
-                    return Ok(Some(CompletionResponse::Array(
-                        self.completion_provider
-                            .get_function_completions(document.functions.to_owned()),
-                    )));
-                }
+            if prefix.as_str().unwrap().ends_with("jet::") {
+                return Ok(Some(CompletionResponse::Array(
+                    self.completion_provider.get_jets(),
+                )));
             }
-            None => {}
+            return Ok(Some(CompletionResponse::Array(
+                CompletionProvider::get_function_completions(document.functions.as_slice()),
+            )));
         }
         Ok(Some(CompletionResponse::Array(vec![])))
     }
@@ -164,7 +165,7 @@ impl LanguageServer for Backend {
 impl Backend {
     pub fn new(client: Client) -> Self {
         Self {
-            client: client,
+            client,
             document_map: DashMap::new(),
             completion_provider: CompletionProvider::new(),
         }
@@ -176,24 +177,20 @@ impl Backend {
             Err(e) => return Some(e),
         };
 
-        parse_program.items().iter().for_each(|item| match item {
-            parse::Item::Function(func) => {
+        parse_program.items().iter().for_each(|item| {
+            if let parse::Item::Function(func) = item {
                 self.document_map
                     .get_mut(uri)
                     .unwrap()
                     .functions
                     .push(func.to_owned());
             }
-            _ => {}
         });
 
-        match ast::Program::analyze(&parse_program).with_file(text) {
-            Ok(_ast) => None,
-            Err(e) => Some(e),
-        }
+        ast::Program::analyze(&parse_program).with_file(text).err()
     }
 
-    async fn on_change<'a>(&self, params: TextDocumentItem<'a>) {
+    async fn on_change(&self, params: TextDocumentItem<'_>) {
         let rope = ropey::Rope::from_str(params.text);
         self.document_map.insert(
             params.uri.to_string(),
@@ -203,23 +200,25 @@ impl Backend {
             },
         );
 
-        let err = self.parse_program(&params.text, &params.uri.to_string());
+        let err = self.parse_program(params.text, &params.uri.to_string());
 
         match err {
             None => {
                 self.client
-                    .log_message(MessageType::INFO, &format!("errors not found!"))
+                    .log_message(MessageType::INFO, "errors not found!".to_string())
                     .await;
                 self.client
                     .publish_diagnostics(params.uri.clone(), vec![], params.version)
                     .await;
             }
             Some(err) => {
-                let (start, end) = span_to_positions(err.span());
-
-                self.client
-                    .log_message(MessageType::INFO, &format!("Get error: \n{}", err))
-                    .await;
+                let (start, end) = match span_to_positions(err.span()) {
+                    Ok(result) => result,
+                    Err(err) => {
+                        dbg!("catch error: {}", err);
+                        return;
+                    }
+                };
 
                 self.client
                     .publish_diagnostics(
@@ -236,16 +235,29 @@ impl Backend {
     }
 }
 
-// TODO: document magic function 
-fn span_to_positions(span: &Span) -> (Position, Position) {
-    (
+/// Convert `simplicityhl::error::Span` to `tower_lsp_server::lsp_types::Positions`
+///
+/// Converting is required because `simplicityhl::error::Span` using their own versions of `Position`,
+/// which contains non-zero column and line, so they are always starts with one.
+/// `Position` required for diagnostic starts with zero
+fn span_to_positions(span: &Span) -> Result<(Position, Position)> {
+    let start_line = u32::try_from(span.start.line.get())
+        .map_err(|e| Error::invalid_params(format!("line overflow: {e}")))?;
+    let start_col = u32::try_from(span.start.col.get())
+        .map_err(|e| Error::invalid_params(format!("col overflow: {e}")))?;
+    let end_line = u32::try_from(span.end.line.get())
+        .map_err(|e| Error::invalid_params(format!("line overflow: {e}")))?;
+    let end_col = u32::try_from(span.end.col.get())
+        .map_err(|e| Error::invalid_params(format!("col overflow: {e}")))?;
+
+    Ok((
         Position {
-            line: span.start.line.get() as u32 - 1,
-            character: span.start.col.get() as u32 - 1,
+            line: start_line - 1,
+            character: start_col - 1,
         },
         Position {
-            line: span.end.line.get() as u32 - 1,
-            character: span.end.col.get() as u32 - 1,
+            line: end_line - 1,
+            character: end_col - 1,
         },
-    )
+    ))
 }

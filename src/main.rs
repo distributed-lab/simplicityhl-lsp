@@ -1,4 +1,4 @@
-// TODO: Add here: #![warn(clippy::all, clippy::pedantic)] and resolve all warnings
+#![warn(clippy::all, clippy::pedantic)]
 
 mod backend;
 mod completion;
@@ -12,6 +12,6 @@ async fn main() {
     env_logger::init();
     let (stdin, stdout) = (tokio::io::stdin(), tokio::io::stdout());
 
-    let (service, socket) = LspService::new(|client| Backend::new(client));
+    let (service, socket) = LspService::new(Backend::new);
     Server::new(stdin, stdout, socket).serve(service).await;
 }
