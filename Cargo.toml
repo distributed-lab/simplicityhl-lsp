@@ -7,7 +7,7 @@ edition = "2024"
 tokio = { version = "1.47.1", features = ["full"] }
 serde_json = "1.0.143"
 tower-lsp-server = "0.22.1"
-simplicityhl = { git = "https://github.com/BlockstreamResearch/SimplicityHL.git", version = "0.2.0" }
+simplicityhl = { git = "https://github.com/BlockstreamResearch/SimplicityHL.git", rev = "e68e1c6" }
 dashmap = "6.1.0"
 ropey = "1.6.1"
 log = "0.4.28"
