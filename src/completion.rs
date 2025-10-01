@@ -13,6 +13,26 @@ pub struct CompletionProvider {
     jets_completion: Vec<CompletionItem>,
 }
 
+impl CompletionProvider {
+    pub fn new() -> Self {
+        let jets_completion = Elements::ALL
+            .iter()
+            .copied()
+            .map(jet_to_completion_item)
+            .collect();
+
+        Self { jets_completion }
+    }
+
+    pub fn jets(&self) -> &[CompletionItem] {
+        &self.jets_completion
+    }
+
+    pub fn get_function_completions(functions: &[Function]) -> Vec<CompletionItem> {
+        functions.iter().map(function_to_completion_item).collect()
+    }
+}
+
 fn jet_to_completion_item(jet: Elements) -> CompletionItem {
     let name = jet.to_string();
     CompletionItem {
@@ -72,24 +92,5 @@ fn function_to_completion_item(func: &Function) -> CompletionItem {
         )),
         insert_text_format: Some(InsertTextFormat::SNIPPET),
         ..Default::default()
-    }
-}
-
-impl CompletionProvider {
-    pub fn new() -> Self {
-        let jets_completion = Elements::ALL
-            .iter()
-            .map(|jet| jet_to_completion_item(*jet))
-            .collect();
-
-        Self { jets_completion }
-    }
-
-    pub fn get_jets(&self) -> Vec<CompletionItem> {
-        self.jets_completion.clone()
-    }
-
-    pub fn get_function_completions(functions: &[Function]) -> Vec<CompletionItem> {
-        functions.iter().map(function_to_completion_item).collect()
     }
 }

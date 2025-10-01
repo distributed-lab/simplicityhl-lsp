@@ -158,7 +158,7 @@ impl LanguageServer for Backend {
 
         if prefix.ends_with("jet::") {
             return Ok(Some(CompletionResponse::Array(
-                self.completion_provider.get_jets(),
+                self.completion_provider.jets().to_vec(),
             )));
         }
 
@@ -187,6 +187,7 @@ impl Backend {
             if let parse::Item::Function(func) = item {
                 self.document_map
                     .get_mut(uri)
+                    // TODO: avoid unwraps at all cost
                     .unwrap()
                     .functions
                     .push(func.to_owned());
