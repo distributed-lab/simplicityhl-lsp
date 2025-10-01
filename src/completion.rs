@@ -75,7 +75,6 @@ fn function_to_completion_item(func: &Function) -> CompletionItem {
     }
 }
 
-// TODO: too many nested blocks (refactor)
 impl CompletionProvider {
     pub fn new() -> Self {
         let jets_completion = Elements::ALL
