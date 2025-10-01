@@ -5,7 +5,7 @@ use simplicityhl::simplicity::jet::Elements;
 use crate::jet::documentation;
 
 use tower_lsp_server::lsp_types::{
-    CompletionItem, CompletionItemKind, Documentation, InsertTextFormat,
+    CompletionItem, CompletionItemKind, Documentation, InsertTextFormat, MarkupContent, MarkupKind,
 };
 
 #[derive(Debug)]
@@ -47,7 +47,10 @@ fn jet_to_completion_item(jet: Elements) -> CompletionItem {
                 .join(", "),
             jet::target_type(jet)
         )),
-        documentation: Some(Documentation::String(documentation(jet).to_string())),
+        documentation: Some(Documentation::MarkupContent(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: documentation(jet).to_string(),
+        })),
         insert_text: Some(format!(
             "{}({})",
             name,
