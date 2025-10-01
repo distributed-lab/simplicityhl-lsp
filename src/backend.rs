@@ -183,16 +183,21 @@ impl Backend {
             Err(e) => return Some(e),
         };
 
-        parse_program.items().iter().for_each(|item| {
-            if let parse::Item::Function(func) = item {
-                self.document_map
-                    .get_mut(uri)
-                    // TODO: avoid unwraps at all cost
-                    .unwrap()
-                    .functions
-                    .push(func.to_owned());
-            }
-        });
+        parse_program
+            .items()
+            .iter()
+            .filter_map(|item| {
+                if let parse::Item::Function(func) = item {
+                    Some(func)
+                } else {
+                    None
+                }
+            })
+            .for_each(|func| {
+                if let Some(mut doc) = self.document_map.get_mut(uri) {
+                    doc.functions.push(func.to_owned());
+                }
+            });
 
         ast::Program::analyze(&parse_program).with_file(text).err()
     }
