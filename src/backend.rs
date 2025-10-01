@@ -141,24 +141,30 @@ impl LanguageServer for Backend {
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let uri = params.text_document_position.text_document.uri;
+        let uri = &params.text_document_position.text_document.uri;
         let pos = params.text_document_position.position;
-        let map = self.document_map.get(&uri);
-        debug!("completion");
-        if let Some(document) = map {
-            let line = document.text.lines().nth(pos.line as usize).unwrap();
-            let prefix = &line.slice(..pos.character as usize);
 
-            if prefix.as_str().unwrap().ends_with("jet::") {
-                return Ok(Some(CompletionResponse::Array(
-                    self.completion_provider.get_jets(),
-                )));
-            }
+        let Some(document) = self.document_map.get(uri) else {
+            return Ok(Some(CompletionResponse::Array(vec![])));
+        };
+
+        let Some(line) = document.text.lines().nth(pos.line as usize) else {
+            return Ok(Some(CompletionResponse::Array(vec![])));
+        };
+
+        let Some(prefix) = line.slice(..pos.character as usize).as_str() else {
+            return Ok(Some(CompletionResponse::Array(vec![])));
+        };
+
+        if prefix.ends_with("jet::") {
             return Ok(Some(CompletionResponse::Array(
-                CompletionProvider::get_function_completions(document.functions.as_slice()),
+                self.completion_provider.get_jets(),
             )));
         }
-        Ok(Some(CompletionResponse::Array(vec![])))
+
+        Ok(Some(CompletionResponse::Array(
+            CompletionProvider::get_function_completions(document.functions.as_slice()),
+        )))
     }
 }
 
