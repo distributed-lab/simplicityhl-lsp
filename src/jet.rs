@@ -1,3 +1,5 @@
+#![allow(warnings)]
+
 // copied from https://github.com/BlockstreamResearch/SimplicityHL/blob/master/codegen/src/jet.rs
 
 use simplicityhl::simplicity::jet::Elements;
