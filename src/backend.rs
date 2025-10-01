@@ -35,7 +35,7 @@ struct Document {
 pub struct Backend {
     client: Client,
 
-    document_map: DashMap<String, Document>,
+    document_map: DashMap<Uri, Document>,
 
     completion_provider: CompletionProvider,
 }
@@ -143,7 +143,7 @@ impl LanguageServer for Backend {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = params.text_document_position.text_document.uri;
         let pos = params.text_document_position.position;
-        let map = self.document_map.get(&uri.to_string());
+        let map = self.document_map.get(&uri);
         debug!("completion");
         if let Some(document) = map {
             let line = document.text.lines().nth(pos.line as usize).unwrap();
@@ -171,7 +171,7 @@ impl Backend {
         }
     }
 
-    fn parse_program(&self, text: &str, uri: &String) -> Option<RichError> {
+    fn parse_program(&self, text: &str, uri: &Uri) -> Option<RichError> {
         let parse_program = match parse::Program::parse_from_str(text) {
             Ok(p) => p,
             Err(e) => return Some(e),
@@ -193,14 +193,14 @@ impl Backend {
     async fn on_change(&self, params: TextDocumentItem<'_>) {
         let rope = ropey::Rope::from_str(params.text);
         self.document_map.insert(
-            params.uri.to_string(),
+            params.uri.clone(),
             Document {
                 functions: vec![],
                 text: rope.clone(),
             },
         );
 
-        let err = self.parse_program(params.text, &params.uri.to_string());
+        let err = self.parse_program(params.text, &params.uri);
 
         match err {
             None => {
