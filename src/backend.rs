@@ -15,7 +15,6 @@ use tower_lsp_server::lsp_types::{
 };
 use tower_lsp_server::{Client, LanguageServer};
 
-use log::debug;
 use simplicityhl::{
     ast,
     error::{RichError, Span, WithFile},
@@ -80,9 +79,7 @@ impl LanguageServer for Backend {
         })
     }
 
-    async fn initialized(&self, _: InitializedParams) {
-        debug!("server initialized!");
-    }
+    async fn initialized(&self, _: InitializedParams) {}
 
     async fn shutdown(&self) -> Result<()> {
         Ok(())
@@ -125,13 +122,9 @@ impl LanguageServer for Backend {
             })
             .await;
         }
-
-        debug!("saved!");
     }
 
-    async fn did_close(&self, _: DidCloseTextDocumentParams) {
-        debug!("closed!");
-    }
+    async fn did_close(&self, _: DidCloseTextDocumentParams) {}
 
     async fn semantic_tokens_full(
         &self,
