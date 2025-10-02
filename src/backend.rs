@@ -162,9 +162,11 @@ impl LanguageServer for Backend {
             }
         }
 
-        Ok(Some(CompletionResponse::Array(
-            CompletionProvider::get_function_completions(document.functions.as_slice()),
-        )))
+        let mut completions =
+            CompletionProvider::get_function_completions(document.functions.as_slice());
+        completions.extend_from_slice(self.completion_provider.builtins());
+
+        Ok(Some(CompletionResponse::Array(completions)))
     }
 }
 
