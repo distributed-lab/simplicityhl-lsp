@@ -149,10 +149,17 @@ impl LanguageServer for Backend {
             return Ok(Some(CompletionResponse::Array(vec![])));
         };
 
-        if prefix.ends_with("jet::") {
-            return Ok(Some(CompletionResponse::Array(
-                self.completion_provider.jets().to_vec(),
-            )));
+        if let Some(last) = prefix
+            .rsplit(|c: char| !c.is_alphanumeric() && c != ':')
+            .next()
+        {
+            if last.starts_with("jet:::") {
+                return Ok(Some(CompletionResponse::Array(vec![])));
+            } else if last == "jet::" || last.starts_with("jet::") {
+                return Ok(Some(CompletionResponse::Array(
+                    self.completion_provider.jets().to_vec(),
+                )));
+            }
         }
 
         Ok(Some(CompletionResponse::Array(
