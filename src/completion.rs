@@ -159,7 +159,11 @@ fn builtint_to_completion_item(func: &FunctionCompletionTemplate) -> CompletionI
                 .map(str::to_string)
                 .collect::<Vec<_>>()
                 .join(", "),
-            func.return_type
+            if func.return_type.is_empty() {
+                "()"
+            } else {
+                func.return_type
+            }
         )),
         documentation: Some(Documentation::MarkupContent(MarkupContent {
             kind: MarkupKind::Markdown,
