@@ -14,40 +14,162 @@ pub struct CompletionProvider {
     builtin_completion: Vec<CompletionItem>,
 }
 
-struct FunctionCompletionTemplate {
-    name: &'static str,
+#[derive(Debug, Clone)]
+pub struct FunctionCompletionTemplate {
+    /// Display name shown in completion list
+    display_name: &'static str,
+    /// Base name for snippet
+    snippet_base: &'static str,
+    /// Generic type parameters to include and use with snippet base
+    generics: &'static [&'static str],
+    /// Function arguments
     args: &'static [&'static str],
+    /// Return type
     return_type: &'static str,
+    /// Documentation
     description: &'static str,
 }
 
-// TODO: refactor and move this to another file
 impl FunctionCompletionTemplate {
     const fn new(
-        name: &'static str,
+        display_name: &'static str,
+        snippet_base: &'static str,
+        generics: &'static [&'static str],
         args: &'static [&'static str],
         return_type: &'static str,
         description: &'static str,
     ) -> Self {
         Self {
-            name,
+            display_name,
+            snippet_base,
+            generics,
             args,
             return_type,
             description,
         }
     }
+
+    const fn simple(
+        display_name: &'static str,
+        args: &'static [&'static str],
+        return_type: &'static str,
+        description: &'static str,
+    ) -> Self {
+        Self {
+            display_name,
+            snippet_base: display_name,
+            generics: &[],
+            args,
+            return_type,
+            description,
+        }
+    }
+
+    fn generate_snippet_name(&self) -> String {
+        format!(
+            "{}::<{}>",
+            self.snippet_base,
+            self.generics
+                .iter()
+                .enumerate()
+                .map(|(index, item)| { format!("${{{}:{}}}", index + 1, item) })
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+    fn get_insert_text(&self) -> String {
+        format!(
+            "{}({})",
+            if self.generics.is_empty() {
+                self.snippet_base.to_string()
+            } else {
+                self.generate_snippet_name()
+            },
+            self.args
+                .iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    format!("${{{}:{}}}", index + 1 + self.generics.len(), item)
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+    fn get_signature(&self) -> String {
+        format!(
+            "fn({}) -> {}",
+            self.args
+                .iter()
+                .copied()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+                .join(", "),
+            if self.return_type.is_empty() {
+                "()"
+            } else {
+                self.return_type
+            }
+        )
+    }
 }
 
-static BUILTIN_FUNCTIONS: [FunctionCompletionTemplate; 4] = [
-    FunctionCompletionTemplate::new(
+static BUILTIN_FUNCTIONS: [FunctionCompletionTemplate; 9] = [
+    FunctionCompletionTemplate::simple(
         "assert!",
         &["bool"],
         "",
         "Fails program if argument is 'false'",
     ),
-    FunctionCompletionTemplate::new("dbg!", &["type"], "type", "Print value and return it"),
-    FunctionCompletionTemplate::new("unwrap", &["Option<ty>"], "ty", "Unwrap Option<type>"),
-    FunctionCompletionTemplate::new("panic!", &[], "", "Fails program"),
+    FunctionCompletionTemplate::simple("dbg!", &["type"], "type", "Print value and return it"),
+    FunctionCompletionTemplate::simple("panic!", &[], "", "Fails program"),
+    FunctionCompletionTemplate::new(
+        "unwrap_left::<T>",
+        "unwrap_left",
+        &["T"],
+        &["Either<T, U>"],
+        "T",
+        "Unwrap left side of Either",
+    ),
+    FunctionCompletionTemplate::new(
+        "unwrap_right::<U>",
+        "unwrap_right",
+        &["U"],
+        &["Either<T, U>"],
+        "U",
+        "Unwrap right side of Either",
+    ),
+    FunctionCompletionTemplate::new(
+        "is_none::<T>",
+        "is_none",
+        &["T"],
+        &["Option<T>"],
+        "bool",
+        "Check if Option is None",
+    ),
+    FunctionCompletionTemplate::new(
+        "fold::<F, B>",
+        "fold",
+        &["F", "B"],
+        &["iter", "init"],
+        "B",
+        "Fold operation over an iterator",
+    ),
+    FunctionCompletionTemplate::new(
+        "array_fold::<F, N>",
+        "array_fold",
+        &["F", "N"],
+        &["array", "init"],
+        "B",
+        "Fold operation over an array of size N",
+    ),
+    FunctionCompletionTemplate::new(
+        "for_while::<F>",
+        "for_while",
+        &["F"],
+        &["condition", "body"],
+        "()",
+        "While loop with a function",
+    ),
 ];
 
 impl CompletionProvider {
@@ -147,38 +269,15 @@ fn function_to_completion_item(func: &Function) -> CompletionItem {
 }
 
 fn builtint_to_completion_item(func: &FunctionCompletionTemplate) -> CompletionItem {
-    let name = func.name;
     CompletionItem {
-        label: name.to_string(),
+        label: func.display_name.to_string(),
         kind: Some(CompletionItemKind::FUNCTION),
-        detail: Some(format!(
-            "fn({}) -> {}",
-            func.args
-                .iter()
-                .copied()
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-                .join(", "),
-            if func.return_type.is_empty() {
-                "()"
-            } else {
-                func.return_type
-            }
-        )),
+        detail: Some(func.get_signature()),
         documentation: Some(Documentation::MarkupContent(MarkupContent {
             kind: MarkupKind::Markdown,
             value: func.description.to_string(),
         })),
-        insert_text: Some(format!(
-            "{}({})",
-            name,
-            func.args
-                .iter()
-                .enumerate()
-                .map(|(index, item)| { format!("${{{}:{}}}", index + 1, item) })
-                .collect::<Vec<_>>()
-                .join(", ")
-        )),
+        insert_text: Some(func.get_insert_text()),
         insert_text_format: Some(InsertTextFormat::SNIPPET),
         ..Default::default()
     }
