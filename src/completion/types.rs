@@ -1,6 +1,6 @@
 /// Template for all functions
 #[derive(Debug, Clone)]
-pub struct FunctionCompletionTemplate {
+pub struct FunctionTemplate {
     /// Display name shown in completion list
     pub display_name: String,
     /// Base name for snippet
@@ -15,7 +15,7 @@ pub struct FunctionCompletionTemplate {
     pub description: String,
 }
 
-impl FunctionCompletionTemplate {
+impl FunctionTemplate {
     /// Create a template with generics (currently used only for builtin functions)
     pub fn new(
         display_name: impl Into<String>,

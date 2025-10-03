@@ -1,4 +1,4 @@
-use crate::completion::types::FunctionCompletionTemplate;
+use crate::completion::types::FunctionTemplate;
 
 /// Macro to convert string literals into `Vec<String>`
 macro_rules! str_vec {
@@ -13,22 +13,22 @@ macro_rules! str_vec {
 // TODO: More verbose descriptions with examples
 
 /// Get completion of builtin functions. They are all defined in `simplicityhl::parse::CallName`
-pub fn get_builtin_functions() -> Vec<FunctionCompletionTemplate> {
+pub fn get_builtin_functions() -> Vec<FunctionTemplate> {
     vec![
-        FunctionCompletionTemplate::simple(
+        FunctionTemplate::simple(
             "assert!",
             str_vec!["bool"],
             "",
             "Fails program if argument is 'false'",
         ),
-        FunctionCompletionTemplate::simple(
+        FunctionTemplate::simple(
             "dbg!",
             str_vec!["type"],
             "type",
             "Print value and return it",
         ),
-        FunctionCompletionTemplate::simple("panic!", str_vec![], "", "Fails program"),
-        FunctionCompletionTemplate::new(
+        FunctionTemplate::simple("panic!", str_vec![], "", "Fails program"),
+        FunctionTemplate::new(
             "unwrap_left::<T>",
             "unwrap_left",
             str_vec!["T"],
@@ -36,7 +36,7 @@ pub fn get_builtin_functions() -> Vec<FunctionCompletionTemplate> {
             "T",
             "Unwrap left side of Either",
         ),
-        FunctionCompletionTemplate::new(
+        FunctionTemplate::new(
             "unwrap_right::<U>",
             "unwrap_right",
             str_vec!["U"],
@@ -44,7 +44,7 @@ pub fn get_builtin_functions() -> Vec<FunctionCompletionTemplate> {
             "U",
             "Unwrap right side of Either",
         ),
-        FunctionCompletionTemplate::new(
+        FunctionTemplate::new(
             "is_none::<T>",
             "is_none",
             str_vec!["T"],
@@ -52,7 +52,7 @@ pub fn get_builtin_functions() -> Vec<FunctionCompletionTemplate> {
             "bool",
             "Check if Option is None",
         ),
-        FunctionCompletionTemplate::new(
+        FunctionTemplate::new(
             "fold::<F, B>",
             "fold",
             str_vec!["F", "B"],
@@ -60,7 +60,7 @@ pub fn get_builtin_functions() -> Vec<FunctionCompletionTemplate> {
             "B",
             "Fold operation over an iterator",
         ),
-        FunctionCompletionTemplate::new(
+        FunctionTemplate::new(
             "array_fold::<F, N>",
             "array_fold",
             str_vec!["F", "N"],
@@ -68,7 +68,7 @@ pub fn get_builtin_functions() -> Vec<FunctionCompletionTemplate> {
             "B",
             "Fold operation over an array of size N",
         ),
-        FunctionCompletionTemplate::new(
+        FunctionTemplate::new(
             "for_while::<F>",
             "for_while",
             str_vec!["F"],

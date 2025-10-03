@@ -54,7 +54,7 @@ impl CompletionProvider {
 
 /// Convert `simplicityhl::parse::Function` to `CompletionItem`.
 fn function_to_completion_item(func: &Function) -> CompletionItem {
-    let template = types::FunctionCompletionTemplate::simple(
+    let template = types::FunctionTemplate::simple(
         func.name().to_string(),
         func.params()
             .iter()
@@ -70,7 +70,7 @@ fn function_to_completion_item(func: &Function) -> CompletionItem {
 }
 
 /// Convert `FunctionCompletionTemplate` to `CompletionItem`.
-fn template_to_completion(func: &types::FunctionCompletionTemplate) -> CompletionItem {
+fn template_to_completion(func: &types::FunctionTemplate) -> CompletionItem {
     CompletionItem {
         label: func.display_name.clone(),
         kind: Some(CompletionItemKind::FUNCTION),

@@ -4,12 +4,12 @@ use simplicityhl::jet;
 use simplicityhl::simplicity::jet::Elements;
 
 /// Convert all jets to `FunctionCompletionTemplate`.
-pub fn get_jets_completions() -> Vec<types::FunctionCompletionTemplate> {
+pub fn get_jets_completions() -> Vec<types::FunctionTemplate> {
     Elements::ALL
         .iter()
         .copied()
         .map(|jet| {
-            types::FunctionCompletionTemplate::simple(
+            types::FunctionTemplate::simple(
                 jet.to_string(),
                 jet::source_type(jet)
                     .iter()
