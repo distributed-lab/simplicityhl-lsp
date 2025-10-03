@@ -16,7 +16,7 @@ pub struct FunctionCompletionTemplate {
 }
 
 impl FunctionCompletionTemplate {
-    /// Create a template with generics (currently used only for buildin functions)
+    /// Create a template with generics (currently used only for builtin functions)
     pub fn new(
         display_name: impl Into<String>,
         snippet_base: impl Into<String>,

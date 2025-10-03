@@ -12,7 +12,7 @@ macro_rules! str_vec {
 
 // TODO: More verbose descriptions with examples
 
-/// Get completion of buildin functions. They are all defined in `simplicityhl::parse::CallName`
+/// Get completion of builtin functions. They are all defined in `simplicityhl::parse::CallName`
 pub fn get_builtin_functions() -> Vec<FunctionCompletionTemplate> {
     vec![
         FunctionCompletionTemplate::simple(
