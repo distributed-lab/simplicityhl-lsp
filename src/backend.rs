@@ -211,6 +211,9 @@ impl LanguageServer for Backend {
             else {
                 return Ok(None);
             };
+            let Ok((start, end)) = span_to_positions(call.span()) else {
+                return Ok(None);
+            };
 
             match call.name() {
                 parse::CallName::Jet(jet) => {
@@ -219,15 +222,21 @@ impl LanguageServer for Backend {
                     ) else {
                         return Ok(None);
                     };
-                    let Ok((start, end)) = span_to_positions(call.span()) else {
-                        return Ok(None);
-                    };
+
+                    let template = completion::jet::jet_to_template(element);
+                    let description = format!(
+                        "```simplicityhl\nfn jet::{}({}) -> {}\n```\n{}",
+                        template.display_name,
+                        template.args.join(", "),
+                        template.return_type,
+                        completion::jet::documentation(element)
+                    );
 
                     return Ok(Some(Hover {
                         contents: tower_lsp_server::lsp_types::HoverContents::Markup(
                             MarkupContent {
                                 kind: MarkupKind::Markdown,
-                                value: completion::jet::documentation(element).to_string(),
+                                value: description,
                             },
                         ),
                         range: Some(Range { start, end }),

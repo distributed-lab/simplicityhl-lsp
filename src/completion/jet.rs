@@ -5,21 +5,19 @@ use simplicityhl::simplicity::jet::Elements;
 
 /// Convert all jets to `FunctionCompletionTemplate`.
 pub fn get_jets_completions() -> Vec<types::FunctionTemplate> {
-    Elements::ALL
-        .iter()
-        .copied()
-        .map(|jet| {
-            types::FunctionTemplate::simple(
-                jet.to_string(),
-                jet::source_type(jet)
-                    .iter()
-                    .map(|item| format!("{item}"))
-                    .collect::<Vec<String>>(),
-                jet::target_type(jet).to_string().as_str(),
-                documentation(jet),
-            )
-        })
-        .collect()
+    Elements::ALL.iter().copied().map(jet_to_template).collect()
+}
+
+pub fn jet_to_template(jet: Elements) -> types::FunctionTemplate {
+    types::FunctionTemplate::simple(
+        jet.to_string(),
+        jet::source_type(jet)
+            .iter()
+            .map(|item| format!("{item}"))
+            .collect::<Vec<String>>(),
+        jet::target_type(jet).to_string().as_str(),
+        documentation(jet),
+    )
 }
 
 // copied from https://github.com/BlockstreamResearch/SimplicityHL/blob/master/codegen/src/jet.rs
