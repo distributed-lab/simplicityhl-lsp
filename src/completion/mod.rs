@@ -1,8 +1,8 @@
 use simplicityhl::parse::Function;
 
-mod builtin;
-mod jet;
-mod types;
+pub mod builtin;
+pub mod jet;
+pub mod types;
 
 use tower_lsp_server::lsp_types::{
     CompletionItem, CompletionItemKind, Documentation, InsertTextFormat, MarkupContent, MarkupKind,

@@ -1,17 +1,21 @@
 use dashmap::DashMap;
 use ropey::Rope;
 use serde_json::Value;
+use std::str::FromStr;
+
+use std::num::NonZeroUsize;
 
 use tower_lsp_server::jsonrpc::{Error, Result};
 use tower_lsp_server::lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, ExecuteCommandParams, InitializeParams, InitializeResult,
-    InitializedParams, MessageType, OneOf, Position, Range, SaveOptions, SemanticTokensParams,
-    SemanticTokensResult, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, Uri, WorkDoneProgressOptions,
-    WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+    DidSaveTextDocumentParams, ExecuteCommandParams, Hover, HoverParams, HoverProviderCapability,
+    InitializeParams, InitializeResult, InitializedParams, MarkupContent, MarkupKind, MessageType,
+    OneOf, Position, Range, SaveOptions, SemanticTokensParams, SemanticTokensResult,
+    ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    TextDocumentSyncSaveOptions, Uri, WorkDoneProgressOptions, WorkspaceFoldersServerCapabilities,
+    WorkspaceServerCapabilities,
 };
 use tower_lsp_server::{Client, LanguageServer};
 
@@ -22,8 +26,10 @@ use simplicityhl::{
     parse::ParseFromStr,
 };
 
-use crate::completion::CompletionProvider;
+use miniscript::iter::TreeLike;
 
+use crate::completion::{self, CompletionProvider};
+use crate::expression::span_contains;
 #[derive(Debug)]
 struct Document {
     functions: Vec<parse::Function>,
@@ -74,6 +80,7 @@ impl LanguageServer for Backend {
                     }),
                     file_operations: None,
                 }),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
                 ..ServerCapabilities::default()
             },
         })
@@ -167,6 +174,70 @@ impl LanguageServer for Backend {
         completions.extend_from_slice(self.completion_provider.builtins());
 
         Ok(Some(CompletionResponse::Array(completions)))
+    }
+
+    // TODO: refactor
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let program = match self
+            .document_map
+            .get_mut(&params.text_document_position_params.text_document.uri)
+        {
+            Some(map) => map.functions.clone(),
+            None => return Ok(None),
+        };
+
+        let token_position = params.text_document_position_params.position;
+        let Ok(token_span) = positions_to_span((token_position, token_position)) else {
+            return Ok(None);
+        };
+        let contained_func = program
+            .iter()
+            .find(|func| span_contains(func.span(), &token_span));
+
+        if let Some(func) = contained_func {
+            let calls = parse::ExprTree::Expression(func.body())
+                .pre_order_iter()
+                .filter_map(|expr| match expr {
+                    parse::ExprTree::Call(call) => Some(call),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            let Some(call) = calls
+                .iter()
+                .copied()
+                .filter(|s| span_contains(s.span(), &token_span))
+                .next_back()
+            else {
+                return Ok(None);
+            };
+
+            match call.name() {
+                parse::CallName::Jet(jet) => {
+                    let Ok(element) = simplicityhl::simplicity::jet::Elements::from_str(
+                        format!("{jet}").as_str(),
+                    ) else {
+                        return Ok(None);
+                    };
+                    let Ok((start, end)) = span_to_positions(call.span()) else {
+                        return Ok(None);
+                    };
+
+                    return Ok(Some(Hover {
+                        contents: tower_lsp_server::lsp_types::HoverContents::Markup(
+                            MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: completion::jet::documentation(element).to_string(),
+                            },
+                        ),
+                        range: Some(Range { start, end }),
+                    }));
+                }
+                _ => return Ok(None),
+            }
+        }
+
+        Ok(None)
     }
 }
 
@@ -274,4 +345,28 @@ fn span_to_positions(span: &Span) -> Result<(Position, Position)> {
             character: end_col - 1,
         },
     ))
+}
+
+fn positions_to_span(positions: (Position, Position)) -> Result<Span> {
+    let start_line = NonZeroUsize::new((positions.0.line + 1) as usize)
+        .ok_or_else(|| Error::invalid_params("start line must be non-zero".to_string()))?;
+
+    let start_col = NonZeroUsize::new((positions.0.character + 1) as usize)
+        .ok_or_else(|| Error::invalid_params("start column must be non-zero".to_string()))?;
+
+    let end_line = NonZeroUsize::new((positions.1.line + 1) as usize)
+        .ok_or_else(|| Error::invalid_params("end line must be non-zero".to_string()))?;
+
+    let end_col = NonZeroUsize::new((positions.1.character + 1) as usize)
+        .ok_or_else(|| Error::invalid_params("end column must be non-zero".to_string()))?;
+    Ok(Span {
+        start: simplicityhl::error::Position {
+            line: start_line,
+            col: start_col,
+        },
+        end: simplicityhl::error::Position {
+            line: end_line,
+            col: end_col,
+        },
+    })
 }
