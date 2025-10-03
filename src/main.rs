@@ -2,7 +2,6 @@
 
 mod backend;
 mod completion;
-mod jet;
 
 use backend::Backend;
 use tower_lsp_server::{LspService, Server};
