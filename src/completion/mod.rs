@@ -48,13 +48,19 @@ impl CompletionProvider {
 
     /// Get generic functions completions.
     pub fn get_function_completions(functions: &[Function]) -> Vec<CompletionItem> {
-        functions.iter().map(function_to_completion_item).collect()
+        functions
+            .iter()
+            .map(|func| {
+                let template = function_to_template(func);
+                template_to_completion(&template)
+            })
+            .collect()
     }
 }
 
-/// Convert `simplicityhl::parse::Function` to `CompletionItem`.
-fn function_to_completion_item(func: &Function) -> CompletionItem {
-    let template = types::FunctionTemplate::simple(
+/// Convert `simplicityhl::parse::Function` to `FunctionTemplate`.
+pub fn function_to_template(func: &Function) -> types::FunctionTemplate {
+    types::FunctionTemplate::simple(
         func.name().to_string(),
         func.params()
             .iter()
@@ -65,8 +71,7 @@ fn function_to_completion_item(func: &Function) -> CompletionItem {
             None => "()".to_string(),
         },
         "User defined function",
-    );
-    template_to_completion(&template)
+    )
 }
 
 /// Convert `FunctionCompletionTemplate` to `CompletionItem`.

@@ -33,6 +33,7 @@ use crate::expression::span_contains;
 #[derive(Debug)]
 struct Document {
     functions: Vec<parse::Function>,
+    functions_docs: DashMap<String, String>,
     text: Rope,
 }
 
@@ -178,19 +179,19 @@ impl LanguageServer for Backend {
 
     // TODO: refactor
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let program = match self
+        let Some(document) = self
             .document_map
             .get_mut(&params.text_document_position_params.text_document.uri)
-        {
-            Some(map) => map.functions.clone(),
-            None => return Ok(None),
+        else {
+            return Ok(None);
         };
 
         let token_position = params.text_document_position_params.position;
         let Ok(token_span) = positions_to_span((token_position, token_position)) else {
             return Ok(None);
         };
-        let contained_func = program
+        let contained_func = document
+            .functions
             .iter()
             .find(|func| span_contains(func.span(), &token_span));
 
@@ -242,6 +243,35 @@ impl LanguageServer for Backend {
                         range: Some(Range { start, end }),
                     }));
                 }
+                parse::CallName::Custom(func) => {
+                    dbg!("custom function");
+                    let Some(function) = document.functions.iter().find(|f| f.name() == func)
+                    else {
+                        return Ok(None);
+                    };
+
+                    let Some(function_doc) = document.functions_docs.get(&func.to_string()) else {
+                        return Ok(None);
+                    };
+
+                    let template = completion::function_to_template(function);
+                    let description = format!(
+                        "```simplicityhl\nfn {}({}) -> {}\n```\n{}",
+                        template.display_name,
+                        template.args.join(", "),
+                        template.return_type,
+                        *function_doc
+                    );
+                    return Ok(Some(Hover {
+                        contents: tower_lsp_server::lsp_types::HoverContents::Markup(
+                            MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: description,
+                            },
+                        ),
+                        range: Some(Range { start, end }),
+                    }));
+                }
                 _ => return Ok(None),
             }
         }
@@ -257,6 +287,30 @@ impl Backend {
             document_map: DashMap::new(),
             completion_provider: CompletionProvider::new(),
         }
+    }
+
+    fn get_comments_from_lines(line: u32, rope: &Rope) -> String {
+        let mut result = vec![];
+
+        if line == 0 {
+            return String::new();
+        }
+        for i in (0..line).rev() {
+            let Some(rope_slice) = rope.get_line(i as usize) else {
+                break;
+            };
+            let text = rope_slice.to_string();
+
+            if text.starts_with("///") {
+                let doc = text.strip_prefix("///").unwrap_or("").to_string();
+                result.push(doc);
+            } else {
+                break;
+            }
+        }
+
+        result.reverse();
+        result.join("\n")
     }
 
     fn parse_program(&self, text: &str, uri: &Uri) -> Option<RichError> {
@@ -278,6 +332,15 @@ impl Backend {
             .for_each(|func| {
                 if let Some(mut doc) = self.document_map.get_mut(uri) {
                     doc.functions.push(func.to_owned());
+
+                    let rope = doc.text.clone();
+                    let start_line =
+                        u32::try_from(func.as_ref().start.line.get()).unwrap_or_default() - 1;
+
+                    doc.functions_docs.insert(
+                        func.name().to_string(),
+                        Self::get_comments_from_lines(start_line, &rope),
+                    );
                 }
             });
 
@@ -290,6 +353,7 @@ impl Backend {
             params.uri.clone(),
             Document {
                 functions: vec![],
+                functions_docs: DashMap::new(),
                 text: rope.clone(),
             },
         );
