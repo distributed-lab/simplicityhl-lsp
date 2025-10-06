@@ -62,10 +62,7 @@ impl CompletionProvider {
 pub fn function_to_template(func: &Function) -> types::FunctionTemplate {
     types::FunctionTemplate::simple(
         func.name().to_string(),
-        func.params()
-            .iter()
-            .map(|item| format!("{}", item))
-            .collect(),
+        func.params().iter().map(|item| format!("{item}")).collect(),
         match func.ret() {
             Some(ret) => format!("{ret}"),
             None => "()".to_string(),
