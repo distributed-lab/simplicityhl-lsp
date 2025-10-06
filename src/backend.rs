@@ -3,17 +3,15 @@ use ropey::Rope;
 use serde_json::Value;
 use std::str::FromStr;
 
-use std::num::NonZeroUsize;
-
-use tower_lsp_server::jsonrpc::{Error, Result};
+use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, ExecuteCommandParams, Hover, HoverParams, HoverProviderCapability,
     InitializeParams, InitializeResult, InitializedParams, MarkupContent, MarkupKind, MessageType,
-    OneOf, Position, Range, SaveOptions, SemanticTokensParams, SemanticTokensResult,
-    ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    OneOf, Range, SaveOptions, SemanticTokensParams, SemanticTokensResult, ServerCapabilities,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
     TextDocumentSyncSaveOptions, Uri, WorkDoneProgressOptions, WorkspaceFoldersServerCapabilities,
     WorkspaceServerCapabilities,
 };
@@ -21,7 +19,7 @@ use tower_lsp_server::{Client, LanguageServer};
 
 use simplicityhl::{
     ast,
-    error::{RichError, Span, WithFile},
+    error::{RichError, WithFile},
     parse,
     parse::ParseFromStr,
 };
@@ -29,7 +27,8 @@ use simplicityhl::{
 use miniscript::iter::TreeLike;
 
 use crate::completion::{self, CompletionProvider};
-use crate::expression::span_contains;
+use crate::utils::{positions_to_span, span_contains, span_to_positions};
+
 #[derive(Debug)]
 struct Document {
     functions: Vec<parse::Function>,
@@ -244,7 +243,6 @@ impl LanguageServer for Backend {
                     }));
                 }
                 parse::CallName::Custom(func) => {
-                    dbg!("custom function");
                     let Some(function) = document.functions.iter().find(|f| f.name() == func)
                     else {
                         return Ok(None);
@@ -289,30 +287,6 @@ impl Backend {
         }
     }
 
-    fn get_comments_from_lines(line: u32, rope: &Rope) -> String {
-        let mut result = vec![];
-
-        if line == 0 {
-            return String::new();
-        }
-        for i in (0..line).rev() {
-            let Some(rope_slice) = rope.get_line(i as usize) else {
-                break;
-            };
-            let text = rope_slice.to_string();
-
-            if text.starts_with("///") {
-                let doc = text.strip_prefix("///").unwrap_or("").to_string();
-                result.push(doc);
-            } else {
-                break;
-            }
-        }
-
-        result.reverse();
-        result.join("\n")
-    }
-
     fn parse_program(&self, text: &str, uri: &Uri) -> Option<RichError> {
         let parse_program = match parse::Program::parse_from_str(text) {
             Ok(p) => p,
@@ -339,7 +313,7 @@ impl Backend {
 
                     doc.functions_docs.insert(
                         func.name().to_string(),
-                        Self::get_comments_from_lines(start_line, &rope),
+                        get_comments_from_lines(start_line, &rope),
                     );
                 }
             });
@@ -393,53 +367,26 @@ impl Backend {
     }
 }
 
-/// Convert `simplicityhl::error::Span` to `tower_lsp_server::lsp_types::Positions`
-///
-/// Converting is required because `simplicityhl::error::Span` using their own versions of `Position`,
-/// which contains non-zero column and line, so they are always starts with one.
-/// `Position` required for diagnostic starts with zero
-fn span_to_positions(span: &Span) -> Result<(Position, Position)> {
-    let start_line = u32::try_from(span.start.line.get())
-        .map_err(|e| Error::invalid_params(format!("line overflow: {e}")))?;
-    let start_col = u32::try_from(span.start.col.get())
-        .map_err(|e| Error::invalid_params(format!("col overflow: {e}")))?;
-    let end_line = u32::try_from(span.end.line.get())
-        .map_err(|e| Error::invalid_params(format!("line overflow: {e}")))?;
-    let end_col = u32::try_from(span.end.col.get())
-        .map_err(|e| Error::invalid_params(format!("col overflow: {e}")))?;
+fn get_comments_from_lines(line: u32, rope: &Rope) -> String {
+    let mut result = vec![];
 
-    Ok((
-        Position {
-            line: start_line - 1,
-            character: start_col - 1,
-        },
-        Position {
-            line: end_line - 1,
-            character: end_col - 1,
-        },
-    ))
-}
+    if line == 0 {
+        return String::new();
+    }
+    for i in (0..line).rev() {
+        let Some(rope_slice) = rope.get_line(i as usize) else {
+            break;
+        };
+        let text = rope_slice.to_string();
 
-fn positions_to_span(positions: (Position, Position)) -> Result<Span> {
-    let start_line = NonZeroUsize::new((positions.0.line + 1) as usize)
-        .ok_or_else(|| Error::invalid_params("start line must be non-zero".to_string()))?;
+        if text.starts_with("///") {
+            let doc = text.strip_prefix("///").unwrap_or("").to_string();
+            result.push(doc);
+        } else {
+            break;
+        }
+    }
 
-    let start_col = NonZeroUsize::new((positions.0.character + 1) as usize)
-        .ok_or_else(|| Error::invalid_params("start column must be non-zero".to_string()))?;
-
-    let end_line = NonZeroUsize::new((positions.1.line + 1) as usize)
-        .ok_or_else(|| Error::invalid_params("end line must be non-zero".to_string()))?;
-
-    let end_col = NonZeroUsize::new((positions.1.character + 1) as usize)
-        .ok_or_else(|| Error::invalid_params("end column must be non-zero".to_string()))?;
-    Ok(Span {
-        start: simplicityhl::error::Position {
-            line: start_line,
-            col: start_col,
-        },
-        end: simplicityhl::error::Position {
-            line: end_line,
-            col: end_col,
-        },
-    })
+    result.reverse();
+    result.join("\n")
 }

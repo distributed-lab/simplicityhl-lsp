@@ -2,7 +2,7 @@
 
 mod backend;
 mod completion;
-mod expression;
+mod utils;
 
 use backend::Backend;
 use tower_lsp_server::{LspService, Server};
