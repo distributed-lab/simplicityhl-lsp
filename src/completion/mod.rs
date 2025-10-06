@@ -64,7 +64,7 @@ pub fn function_to_template(func: &Function) -> types::FunctionTemplate {
         func.name().to_string(),
         func.params()
             .iter()
-            .map(|item| format!("{}", item.ty()))
+            .map(|item| format!("{}", item))
             .collect(),
         match func.ret() {
             Some(ret) => format!("{ret}"),
