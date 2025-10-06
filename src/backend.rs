@@ -176,105 +176,8 @@ impl LanguageServer for Backend {
         Ok(Some(CompletionResponse::Array(completions)))
     }
 
-    // TODO: refactor
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let Some(document) = self
-            .document_map
-            .get_mut(&params.text_document_position_params.text_document.uri)
-        else {
-            return Ok(None);
-        };
-
-        let token_position = params.text_document_position_params.position;
-        let Ok(token_span) = positions_to_span((token_position, token_position)) else {
-            return Ok(None);
-        };
-        let contained_func = document
-            .functions
-            .iter()
-            .find(|func| span_contains(func.span(), &token_span));
-
-        if let Some(func) = contained_func {
-            let calls = parse::ExprTree::Expression(func.body())
-                .pre_order_iter()
-                .filter_map(|expr| match expr {
-                    parse::ExprTree::Call(call) => Some(call),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-
-            let Some(call) = calls
-                .iter()
-                .copied()
-                .filter(|s| span_contains(s.span(), &token_span))
-                .next_back()
-            else {
-                return Ok(None);
-            };
-            let Ok((start, end)) = span_to_positions(call.span()) else {
-                return Ok(None);
-            };
-
-            match call.name() {
-                parse::CallName::Jet(jet) => {
-                    let Ok(element) = simplicityhl::simplicity::jet::Elements::from_str(
-                        format!("{jet}").as_str(),
-                    ) else {
-                        return Ok(None);
-                    };
-
-                    let template = completion::jet::jet_to_template(element);
-                    let description = format!(
-                        "```simplicityhl\nfn jet::{}({}) -> {}\n```\n{}",
-                        template.display_name,
-                        template.args.join(", "),
-                        template.return_type,
-                        completion::jet::documentation(element)
-                    );
-
-                    return Ok(Some(Hover {
-                        contents: tower_lsp_server::lsp_types::HoverContents::Markup(
-                            MarkupContent {
-                                kind: MarkupKind::Markdown,
-                                value: description,
-                            },
-                        ),
-                        range: Some(Range { start, end }),
-                    }));
-                }
-                parse::CallName::Custom(func) => {
-                    let Some(function) = document.functions.iter().find(|f| f.name() == func)
-                    else {
-                        return Ok(None);
-                    };
-
-                    let Some(function_doc) = document.functions_docs.get(&func.to_string()) else {
-                        return Ok(None);
-                    };
-
-                    let template = completion::function_to_template(function);
-                    let description = format!(
-                        "```simplicityhl\nfn {}({}) -> {}\n```\n{}",
-                        template.display_name,
-                        template.args.join(", "),
-                        template.return_type,
-                        *function_doc
-                    );
-                    return Ok(Some(Hover {
-                        contents: tower_lsp_server::lsp_types::HoverContents::Markup(
-                            MarkupContent {
-                                kind: MarkupKind::Markdown,
-                                value: description,
-                            },
-                        ),
-                        range: Some(Range { start, end }),
-                    }));
-                }
-                _ => return Ok(None),
-            }
-        }
-
-        Ok(None)
+        Ok(self.provide_hover(&params))
     }
 }
 
@@ -365,6 +268,64 @@ impl Backend {
             }
         }
     }
+
+    fn provide_hover(&self, params: &HoverParams) -> Option<Hover> {
+        let document = self
+            .document_map
+            .get_mut(&params.text_document_position_params.text_document.uri)?;
+
+        let token_position = params.text_document_position_params.position;
+        let token_span = positions_to_span((token_position, token_position)).ok()?;
+
+        let call = find_related_call(&document.functions, token_span)?;
+        let (start, end) = span_to_positions(call.span()).ok()?;
+
+        match call.name() {
+            parse::CallName::Jet(jet) => {
+                let element =
+                    simplicityhl::simplicity::jet::Elements::from_str(format!("{jet}").as_str())
+                        .ok()?;
+
+                let template = completion::jet::jet_to_template(element);
+                let description = format!(
+                    "```simplicityhl\nfn jet::{}({}) -> {}\n```\n{}",
+                    template.display_name,
+                    template.args.join(", "),
+                    template.return_type,
+                    completion::jet::documentation(element)
+                );
+
+                Some(Hover {
+                    contents: tower_lsp_server::lsp_types::HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: description,
+                    }),
+                    range: Some(Range { start, end }),
+                })
+            }
+            parse::CallName::Custom(func) => {
+                let function = document.functions.iter().find(|f| f.name() == func)?;
+                let function_doc = document.functions_docs.get(&func.to_string())?;
+
+                let template = completion::function_to_template(function);
+                let description = format!(
+                    "```simplicityhl\nfn {}({}) -> {}\n```\n{}",
+                    template.display_name,
+                    template.args.join(", "),
+                    template.return_type,
+                    *function_doc
+                );
+                Some(Hover {
+                    contents: tower_lsp_server::lsp_types::HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: description,
+                    }),
+                    range: Some(Range { start, end }),
+                })
+            }
+            _ => None,
+        }
+    }
 }
 
 fn get_comments_from_lines(line: u32, rope: &Rope) -> String {
@@ -389,4 +350,27 @@ fn get_comments_from_lines(line: u32, rope: &Rope) -> String {
 
     result.reverse();
     result.join("\n")
+}
+
+fn find_related_call(
+    functions: &[parse::Function],
+    token_span: simplicityhl::error::Span,
+) -> Option<&simplicityhl::parse::Call> {
+    let func = functions
+        .iter()
+        .find(|func| span_contains(func.span(), &token_span))?;
+
+    let calls = parse::ExprTree::Expression(func.body())
+        .pre_order_iter()
+        .filter_map(|expr| match expr {
+            parse::ExprTree::Call(call) => Some(call),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    calls
+        .iter()
+        .copied()
+        .filter(|s| span_contains(s.span(), &token_span))
+        .next_back()
 }
