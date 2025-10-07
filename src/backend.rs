@@ -237,7 +237,7 @@ impl Backend {
         ast::Program::analyze(&parse_program).with_file(text).err()
     }
 
-    /// Function which executed on change of file (did_save, did_open or did_change methods)
+    /// Function which executed on change of file (`did_save`, `did_open` or `did_change` methods)
     async fn on_change(&self, params: TextDocumentItem<'_>) {
         let rope = ropey::Rope::from_str(params.text);
         self.document_map.insert(
