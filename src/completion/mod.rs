@@ -47,11 +47,11 @@ impl CompletionProvider {
     }
 
     /// Get generic functions completions.
-    pub fn get_function_completions(functions: &[Function]) -> Vec<CompletionItem> {
+    pub fn get_function_completions(functions: &[(Function, String)]) -> Vec<CompletionItem> {
         functions
             .iter()
-            .map(|func| {
-                let template = function_to_template(func);
+            .map(|(func, doc)| {
+                let template = function_to_template(func, doc);
                 template_to_completion(&template)
             })
             .collect()
@@ -59,7 +59,7 @@ impl CompletionProvider {
 }
 
 /// Convert `simplicityhl::parse::Function` to `FunctionTemplate`.
-pub fn function_to_template(func: &Function) -> types::FunctionTemplate {
+pub fn function_to_template(func: &Function, doc: &String) -> types::FunctionTemplate {
     types::FunctionTemplate::simple(
         func.name().to_string(),
         func.params().iter().map(|item| format!("{item}")).collect(),
@@ -67,7 +67,7 @@ pub fn function_to_template(func: &Function) -> types::FunctionTemplate {
             Some(ret) => format!("{ret}"),
             None => "()".to_string(),
         },
-        "User defined function",
+        doc,
     )
 }
 

@@ -169,8 +169,19 @@ impl LanguageServer for Backend {
             }
         }
 
-        let mut completions =
-            CompletionProvider::get_function_completions(document.functions.as_slice());
+        let mut completions = CompletionProvider::get_function_completions(
+            &document
+                .functions
+                .iter()
+                .map(|func| {
+                    let function_doc = document
+                        .functions_docs
+                        .get(&func.name().to_string())
+                        .map_or(String::new(), |s| s.clone());
+                    (func.to_owned(), function_doc)
+                })
+                .collect::<Vec<_>>(),
+        );
         completions.extend_from_slice(self.completion_provider.builtins());
 
         Ok(Some(CompletionResponse::Array(completions)))
@@ -307,13 +318,13 @@ impl Backend {
                 let function = document.functions.iter().find(|f| f.name() == func)?;
                 let function_doc = document.functions_docs.get(&func.to_string())?;
 
-                let template = completion::function_to_template(function);
+                let template = completion::function_to_template(function, &function_doc);
                 let description = format!(
                     "```simplicityhl\nfn {}({}) -> {}\n```\n{}",
                     template.display_name,
                     template.args.join(", "),
                     template.return_type,
-                    *function_doc
+                    template.description
                 );
                 Some(Hover {
                     contents: tower_lsp_server::lsp_types::HoverContents::Markup(MarkupContent {
