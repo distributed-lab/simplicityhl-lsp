@@ -345,11 +345,12 @@ impl Backend {
 }
 
 fn get_comments_from_lines(line: u32, rope: &Rope) -> String {
-    let mut result = vec![];
+    let mut lines = Vec::new();
 
     if line == 0 {
         return String::new();
     }
+
     for i in (0..line).rev() {
         let Some(rope_slice) = rope.get_line(i as usize) else {
             break;
@@ -357,15 +358,47 @@ fn get_comments_from_lines(line: u32, rope: &Rope) -> String {
         let text = rope_slice.to_string();
 
         if text.starts_with("///") {
-            let doc = text.strip_prefix("///").unwrap_or("").to_string();
-            result.push(doc);
+            let doc = text
+                .strip_prefix("///")
+                .unwrap_or("")
+                .trim_end()
+                .to_string();
+            lines.push(doc);
         } else {
             break;
         }
     }
 
-    result.reverse();
-    result.join("\n")
+    lines.reverse();
+
+    let mut result = String::new();
+    let mut prev_line_was_text = false;
+
+    for line in lines {
+        let trimmed = line.trim();
+
+        let is_md_block = trimmed.is_empty()
+            || trimmed.starts_with('#')
+            || trimmed.starts_with('-')
+            || trimmed.starts_with('*')
+            || trimmed.starts_with('>')
+            || trimmed.starts_with("```")
+            || trimmed.starts_with("    ");
+
+        if result.is_empty() {
+            result.push_str(trimmed);
+        } else if prev_line_was_text && !is_md_block {
+            result.push(' ');
+            result.push_str(trimmed);
+        } else {
+            result.push('\n');
+            result.push_str(trimmed);
+        }
+
+        prev_line_was_text = !trimmed.is_empty() && !is_md_block;
+    }
+
+    result
 }
 
 fn find_related_call(
