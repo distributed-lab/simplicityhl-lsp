@@ -201,6 +201,8 @@ impl Backend {
         }
     }
 
+    /// Parse program using [`simplicityhl`] compiler and return [`RichError`],
+    /// which used in Diagnostic
     fn parse_program(&self, text: &str, uri: &Uri) -> Option<RichError> {
         let parse_program = match parse::Program::parse_from_str(text) {
             Ok(p) => p,
@@ -235,6 +237,7 @@ impl Backend {
         ast::Program::analyze(&parse_program).with_file(text).err()
     }
 
+    /// Function which executed on change of file (did_save, did_open or did_change methods)
     async fn on_change(&self, params: TextDocumentItem<'_>) {
         let rope = ropey::Rope::from_str(params.text);
         self.document_map.insert(
@@ -280,6 +283,7 @@ impl Backend {
         }
     }
 
+    /// Provide hover for [`Backend::hover`] function.
     fn provide_hover(&self, params: &HoverParams) -> Option<Hover> {
         let document = self
             .document_map
@@ -355,6 +359,8 @@ impl Backend {
     }
 }
 
+/// Get document comments, using lines above given line index. Only used to
+/// get documentation for custom functions.
 fn get_comments_from_lines(line: u32, rope: &Rope) -> String {
     let mut lines = Vec::new();
 
@@ -412,6 +418,7 @@ fn get_comments_from_lines(line: u32, rope: &Rope) -> String {
     result
 }
 
+/// Find [`simplicityhl::parse::Call`] which contains given [`simplicityhl::error::Span`], which also have minimal Span.
 fn find_related_call(
     functions: &[parse::Function],
     token_span: simplicityhl::error::Span,

@@ -19,9 +19,7 @@ macro_rules! str_vec {
     };
 }
 
-// TODO: More verbose descriptions with examples
-
-/// Get completion of builtin functions. They are all defined in `simplicityhl::parse::CallName`
+/// Get completion of builtin functions. They are all defined in [`simplicityhl::parse::CallName`]
 pub fn get_builtin_functions() -> Vec<FunctionTemplate> {
     let ty = AliasedType::from(AliasName::from_str_unchecked("T"));
     let Some(some) = NonZero::new(1) else {
@@ -50,6 +48,7 @@ pub fn get_builtin_functions() -> Vec<FunctionTemplate> {
         .collect()
 }
 
+/// Match [`simplicityhl::parse::CallName`] and return [`FunctionTemplate`]
 #[allow(warnings)]
 pub fn match_callname(call: CallName) -> Option<FunctionTemplate> {
     match call {

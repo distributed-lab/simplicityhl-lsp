@@ -15,7 +15,7 @@ pub fn span_contains(a: &simplicityhl::error::Span, b: &simplicityhl::error::Spa
     position_le(&a.start, &b.start) && position_ge(&a.end, &b.end)
 }
 
-/// Convert `simplicityhl::error::Span` to `tower_lsp_server::lsp_types::Positions`
+/// Convert [`simplicityhl::error::Span`] to [`tower_lsp_server::lsp_types::Position`]
 ///
 /// Converting is required because `simplicityhl::error::Span` using their own versions of `Position`,
 /// which contains non-zero column and line, so they are always starts with one.
@@ -44,6 +44,7 @@ pub fn span_to_positions(
     ))
 }
 
+/// Convert [`tower_lsp_server::lsp_types::Position`] to [`simplicityhl::error::Span`]
 pub fn positions_to_span(
     positions: (lsp_types::Position, lsp_types::Position),
 ) -> Result<simplicityhl::error::Span> {
