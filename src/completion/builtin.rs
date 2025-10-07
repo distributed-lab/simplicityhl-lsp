@@ -50,7 +50,7 @@ pub fn get_builtin_functions() -> Vec<FunctionTemplate> {
         .collect()
 }
 
-fn match_callname(call: CallName) -> Option<FunctionTemplate> {
+pub fn match_callname(call: CallName) -> Option<FunctionTemplate> {
     match call {
         CallName::UnwrapLeft(aliased_type) => {
             let ty = aliased_type.to_string();
@@ -94,13 +94,13 @@ fn match_callname(call: CallName) -> Option<FunctionTemplate> {
         CallName::Assert => Some(FunctionTemplate::simple(
             "assert!",
             str_vec!["bool"],
-            "",
+            "()",
             "Fails program if argument is 'false'",
         )),
         CallName::Panic => Some(FunctionTemplate::simple(
             "panic!",
             str_vec![],
-            "",
+            "()",
             "Fails program",
         )),
         CallName::Debug => Some(FunctionTemplate::simple(

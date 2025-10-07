@@ -323,7 +323,23 @@ impl Backend {
                     range: Some(Range { start, end }),
                 })
             }
-            _ => None,
+            other => {
+                let template = completion::builtin::match_callname(other.to_owned())?;
+                let description = format!(
+                    "```simplicityhl\nfn {}({}) -> {}\n```\n{}",
+                    template.display_name,
+                    template.args.join(", "),
+                    template.return_type,
+                    template.description
+                );
+                Some(Hover {
+                    contents: tower_lsp_server::lsp_types::HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: description,
+                    }),
+                    range: Some(Range { start, end }),
+                })
+            }
         }
     }
 }
