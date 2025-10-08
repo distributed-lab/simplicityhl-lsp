@@ -55,7 +55,7 @@ pub fn match_callname(call: CallName) -> Option<FunctionTemplate> {
         CallName::UnwrapLeft(aliased_type) => {
             let ty = aliased_type.to_string();
             Some(FunctionTemplate::new(
-                format!("unwrap_left::<{ty}>"),
+                "unwrap_left",
                 "unwrap_left",
                 str_vec![format!("{ty}")],
                 str_vec![format!("Either<{ty}, U>")],
@@ -73,7 +73,7 @@ let y: u8 = unwrap_left::<u8>(x); // 42
         CallName::UnwrapRight(aliased_type) => {
             let ty = aliased_type.to_string();
             Some(FunctionTemplate::new(
-                format!("unwrap_right::<{ty}>"),
+                "unwrap_right",
                 "unwrap_right",
                 str_vec![format!("{ty}")],
                 str_vec![format!("Either<T, {ty}>")],
@@ -102,7 +102,7 @@ let y: u8 = unwrap(x); // 5
         CallName::IsNone(aliased_type) => {
             let ty = aliased_type.to_string();
             Some(FunctionTemplate::new(
-                format!("is_none::<{ty}>"),
+                format!("is_none"),
                 "is_none",
                 str_vec![format!("{ty}")],
                 str_vec![format!("Option<{ty}>").as_str()],
@@ -137,7 +137,7 @@ let x: u32 = dbg!(42); // prints 42, returns 42
 ```",
         )),
         CallName::Fold(_, _) => Some(FunctionTemplate::new(
-            "fold::<f, N>",
+            "fold",
             "fold",
             str_vec!["f", "N"],
             str_vec!["list: List<E,N>", "initial_accumulator: A"],
@@ -166,7 +166,7 @@ fn main() {
 ",
         )),
         CallName::ArrayFold(_, _) => Some(FunctionTemplate::new(
-            "array_fold::<f, N>",
+            "array_fold",
             "array_fold",
             str_vec!["f", "N"],
             str_vec!["array: [E; N]", "initial_accumulator: A"],
@@ -193,7 +193,7 @@ fn main() {
 ```",
         )),
         CallName::ForWhile(_) => Some(FunctionTemplate::new(
-            "for_while::<f>",
+            "for_while",
             "for_while",
             str_vec!["f"],
             str_vec!["accumulator: A", "context: C"],
