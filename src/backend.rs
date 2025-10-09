@@ -68,6 +68,7 @@ impl LanguageServer for Backend {
                 )),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
+                    // TODO: maybe use double-colon (via filtering)?
                     trigger_characters: Some(vec![":".to_string()]),
                     work_done_progress_options: WorkDoneProgressOptions::default(),
                     all_commit_characters: None,
@@ -223,6 +224,7 @@ impl Backend {
                 if let Some(mut doc) = self.document_map.get_mut(uri) {
                     doc.functions.push(func.to_owned());
 
+                    // TODO: avoid cloning Rope and repeated Rope conversions
                     let rope = doc.text.clone();
                     let start_line =
                         u32::try_from(func.as_ref().start.line.get()).unwrap_or_default() - 1;
@@ -253,6 +255,7 @@ impl Backend {
 
         match err {
             None => {
+                // TODO: Is this really needed on the INFO level?
                 self.client
                     .log_message(MessageType::INFO, "errors not found!".to_string())
                     .await;
@@ -264,6 +267,7 @@ impl Backend {
                 let (start, end) = match span_to_positions(err.span()) {
                     Ok(result) => result,
                     Err(err) => {
+                        // TODO: Replace dbg! with structured logging to client.log_message
                         dbg!("catch error: {}", err);
                         return;
                     }
@@ -301,6 +305,7 @@ impl Backend {
                     simplicityhl::simplicity::jet::Elements::from_str(format!("{jet}").as_str())
                         .ok()?;
 
+                // TODO: For consistency use `template.get_signature()` instead of reconstructing
                 let template = completion::jet::jet_to_template(element);
                 let description = format!(
                     "```simplicityhl\nfn jet::{}({}) -> {}\n```\n{}",
@@ -426,6 +431,13 @@ fn find_related_call(
     let func = functions
         .iter()
         .find(|func| span_contains(func.span(), &token_span))?;
+
+    // Replace with?
+    // parse::ExprTree::Expression(func.body())
+    // .pre_order_iter()
+    // .filter_map(|expr| if let parse::ExprTree::Call(call) = expr { Some(call) } else { None })
+    // .filter(|c| span_contains(c.span(), &token_span))
+    // .last()
 
     let calls = parse::ExprTree::Expression(func.body())
         .pre_order_iter()

@@ -49,7 +49,6 @@ pub fn get_builtin_functions() -> Vec<FunctionTemplate> {
 }
 
 /// Match [`simplicityhl::parse::CallName`] and return [`FunctionTemplate`]
-#[allow(warnings)]
 pub fn match_callname(call: CallName) -> Option<FunctionTemplate> {
     match call {
         CallName::UnwrapLeft(aliased_type) => {
@@ -102,7 +101,7 @@ let y: u8 = unwrap(x); // 5
         CallName::IsNone(aliased_type) => {
             let ty = aliased_type.to_string();
             Some(FunctionTemplate::new(
-                format!("is_none"),
+                "is_none".to_string(),
                 "is_none",
                 str_vec![format!("{ty}")],
                 str_vec![format!("Option<{ty}>").as_str()],
