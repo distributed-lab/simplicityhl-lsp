@@ -1,7 +1,9 @@
-use dashmap::DashMap;
 use ropey::Rope;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::lsp_types::{
@@ -32,7 +34,7 @@ use crate::utils::{positions_to_span, span_contains, span_to_positions};
 #[derive(Debug)]
 struct Document {
     functions: Vec<parse::Function>,
-    functions_docs: DashMap<String, String>,
+    functions_docs: HashMap<String, String>,
     text: Rope,
 }
 
@@ -40,7 +42,7 @@ struct Document {
 pub struct Backend {
     client: Client,
 
-    document_map: DashMap<Uri, Document>,
+    document_map: Arc<RwLock<HashMap<Uri, Document>>>,
 
     completion_provider: CompletionProvider,
 }
@@ -68,7 +70,6 @@ impl LanguageServer for Backend {
                 )),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
-                    // TODO: maybe use double-colon (via filtering)?
                     trigger_characters: Some(vec![":".to_string()]),
                     work_done_progress_options: WorkDoneProgressOptions::default(),
                     all_commit_characters: None,
@@ -144,20 +145,27 @@ impl LanguageServer for Backend {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = &params.text_document_position.text_document.uri;
         let pos = params.text_document_position.position;
+        let documents = self.document_map.read().await;
 
-        let Some(document) = self.document_map.get(uri) else {
+        let Some(doc) = documents.get(uri) else {
             return Ok(Some(CompletionResponse::Array(vec![])));
         };
 
-        let Some(line) = document.text.lines().nth(pos.line as usize) else {
+        let Some(line) = doc.text.lines().nth(pos.line as usize) else {
             return Ok(Some(CompletionResponse::Array(vec![])));
         };
 
-        let Some(prefix) = line.slice(..pos.character as usize).as_str() else {
+        let Some(slice) = line.get_slice(..pos.character as usize) else {
             return Ok(Some(CompletionResponse::Array(vec![])));
         };
 
-        if let Some(last) = prefix
+        let Some(prefix) = slice.as_str() else {
+            return Ok(Some(CompletionResponse::Array(vec![])));
+        };
+
+        let trimmed_prefix = prefix.trim_end();
+
+        if let Some(last) = trimmed_prefix
             .rsplit(|c: char| !c.is_alphanumeric() && c != ':')
             .next()
         {
@@ -168,28 +176,31 @@ impl LanguageServer for Backend {
                     self.completion_provider.jets().to_vec(),
                 )));
             }
+        // completion after colon needed only for jets
+        } else if trimmed_prefix.ends_with(':') {
+            return Ok(Some(CompletionResponse::Array(vec![])));
         }
 
         let mut completions = CompletionProvider::get_function_completions(
-            &document
-                .functions
+            &doc.functions
                 .iter()
                 .map(|func| {
-                    let function_doc = document
+                    let function_doc = doc
                         .functions_docs
                         .get(&func.name().to_string())
-                        .map_or(String::new(), |s| s.clone());
+                        .map_or(String::new(), String::clone);
                     (func.to_owned(), function_doc)
                 })
                 .collect::<Vec<_>>(),
         );
         completions.extend_from_slice(self.completion_provider.builtins());
+        completions.extend_from_slice(self.completion_provider.modules());
 
         Ok(Some(CompletionResponse::Array(completions)))
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        Ok(self.provide_hover(&params))
+        Ok(self.provide_hover(&params).await)
     }
 }
 
@@ -197,68 +208,24 @@ impl Backend {
     pub fn new(client: Client) -> Self {
         Self {
             client,
-            document_map: DashMap::new(),
+            document_map: Arc::new(RwLock::new(HashMap::new())),
             completion_provider: CompletionProvider::new(),
         }
     }
 
-    /// Parse program using [`simplicityhl`] compiler and return [`RichError`],
-    /// which used in Diagnostic
-    fn parse_program(&self, text: &str, uri: &Uri) -> Option<RichError> {
-        let parse_program = match parse::Program::parse_from_str(text) {
-            Ok(p) => p,
-            Err(e) => return Some(e),
-        };
-
-        parse_program
-            .items()
-            .iter()
-            .filter_map(|item| {
-                if let parse::Item::Function(func) = item {
-                    Some(func)
-                } else {
-                    None
-                }
-            })
-            .for_each(|func| {
-                if let Some(mut doc) = self.document_map.get_mut(uri) {
-                    doc.functions.push(func.to_owned());
-
-                    // TODO: avoid cloning Rope and repeated Rope conversions
-                    let rope = doc.text.clone();
-                    let start_line =
-                        u32::try_from(func.as_ref().start.line.get()).unwrap_or_default() - 1;
-
-                    doc.functions_docs.insert(
-                        func.name().to_string(),
-                        get_comments_from_lines(start_line, &rope),
-                    );
-                }
-            });
-
-        ast::Program::analyze(&parse_program).with_file(text).err()
-    }
-
     /// Function which executed on change of file (`did_save`, `did_open` or `did_change` methods)
     async fn on_change(&self, params: TextDocumentItem<'_>) {
-        let rope = ropey::Rope::from_str(params.text);
-        self.document_map.insert(
-            params.uri.clone(),
-            Document {
-                functions: vec![],
-                functions_docs: DashMap::new(),
-                text: rope.clone(),
-            },
-        );
+        let (err, document) = parse_program(params.text);
 
-        let err = self.parse_program(params.text, &params.uri);
+        let mut documents = self.document_map.write().await;
+        if let Some(doc) = document {
+            documents.insert(params.uri.clone(), doc);
+        } else if let Some(doc) = documents.get_mut(&params.uri) {
+            doc.text = Rope::from_str(params.text);
+        }
 
         match err {
             None => {
-                // TODO: Is this really needed on the INFO level?
-                self.client
-                    .log_message(MessageType::INFO, "errors not found!".to_string())
-                    .await;
                 self.client
                     .publish_diagnostics(params.uri.clone(), vec![], params.version)
                     .await;
@@ -267,8 +234,12 @@ impl Backend {
                 let (start, end) = match span_to_positions(err.span()) {
                     Ok(result) => result,
                     Err(err) => {
-                        // TODO: Replace dbg! with structured logging to client.log_message
-                        dbg!("catch error: {}", err);
+                        self.client
+                            .log_message(
+                                MessageType::ERROR,
+                                format!("Catch error while parsing span: {err}"),
+                            )
+                            .await;
                         return;
                     }
                 };
@@ -288,10 +259,10 @@ impl Backend {
     }
 
     /// Provide hover for [`Backend::hover`] function.
-    fn provide_hover(&self, params: &HoverParams) -> Option<Hover> {
-        let document = self
-            .document_map
-            .get_mut(&params.text_document_position_params.text_document.uri)?;
+    async fn provide_hover(&self, params: &HoverParams) -> Option<Hover> {
+        let documents = self.document_map.read().await;
+
+        let document = documents.get(&params.text_document_position_params.text_document.uri)?;
 
         let token_position = params.text_document_position_params.position;
         let token_span = positions_to_span((token_position, token_position)).ok()?;
@@ -299,69 +270,99 @@ impl Backend {
         let call = find_related_call(&document.functions, token_span)?;
         let (start, end) = span_to_positions(call.span()).ok()?;
 
-        match call.name() {
+        let description = match call.name() {
             parse::CallName::Jet(jet) => {
                 let element =
                     simplicityhl::simplicity::jet::Elements::from_str(format!("{jet}").as_str())
                         .ok()?;
 
-                // TODO: For consistency use `template.get_signature()` instead of reconstructing
                 let template = completion::jet::jet_to_template(element);
-                let description = format!(
+                format!(
                     "```simplicityhl\nfn jet::{}({}) -> {}\n```\n{}",
                     template.display_name,
                     template.args.join(", "),
                     template.return_type,
-                    completion::jet::documentation(element)
-                );
-
-                Some(Hover {
-                    contents: tower_lsp_server::lsp_types::HoverContents::Markup(MarkupContent {
-                        kind: MarkupKind::Markdown,
-                        value: description,
-                    }),
-                    range: Some(Range { start, end }),
-                })
+                    template.description
+                )
             }
             parse::CallName::Custom(func) => {
                 let function = document.functions.iter().find(|f| f.name() == func)?;
                 let function_doc = document.functions_docs.get(&func.to_string())?;
 
-                let template = completion::function_to_template(function, &function_doc);
-                let description = format!(
+                let template = completion::function_to_template(function, function_doc);
+                format!(
                     "```simplicityhl\nfn {}({}) -> {}\n```\n{}",
                     template.display_name,
                     template.args.join(", "),
                     template.return_type,
                     template.description
-                );
-                Some(Hover {
-                    contents: tower_lsp_server::lsp_types::HoverContents::Markup(MarkupContent {
-                        kind: MarkupKind::Markdown,
-                        value: description,
-                    }),
-                    range: Some(Range { start, end }),
-                })
+                )
             }
             other => {
-                let template = completion::builtin::match_callname(other.to_owned())?;
-                let description = format!(
+                let template = completion::builtin::match_callname(other)?;
+                format!(
                     "```simplicityhl\nfn {}({}) -> {}\n```\n{}",
                     template.display_name,
                     template.args.join(", "),
                     template.return_type,
                     template.description
-                );
-                Some(Hover {
-                    contents: tower_lsp_server::lsp_types::HoverContents::Markup(MarkupContent {
-                        kind: MarkupKind::Markdown,
-                        value: description,
-                    }),
-                    range: Some(Range { start, end }),
-                })
+                )
             }
-        }
+        };
+
+        Some(Hover {
+            contents: tower_lsp_server::lsp_types::HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: description,
+            }),
+            range: Some(Range { start, end }),
+        })
     }
+}
+
+/// Create [`Document`] using parsed program and code.
+fn create_document(program: &simplicityhl::parse::Program, text: &str) -> Document {
+    let mut document = Document {
+        functions: vec![],
+        functions_docs: HashMap::new(),
+        text: Rope::from_str(text),
+    };
+
+    program
+        .items()
+        .iter()
+        .filter_map(|item| {
+            if let parse::Item::Function(func) = item {
+                Some(func)
+            } else {
+                None
+            }
+        })
+        .for_each(|func| {
+            let start_line = u32::try_from(func.as_ref().start.line.get()).unwrap_or_default() - 1;
+
+            document.functions.push(func.to_owned());
+            document.functions_docs.insert(
+                func.name().to_string(),
+                get_comments_from_lines(start_line, &document.text),
+            );
+        });
+
+    document
+}
+
+/// Parse program using [`simplicityhl`] compiler and return [`RichError`],
+/// which used in Diagnostic. Also create [`Document`] from parsed program.
+fn parse_program(text: &str) -> (Option<RichError>, Option<Document>) {
+    let program = match parse::Program::parse_from_str(text) {
+        Ok(p) => p,
+        Err(e) => return (Some(e), None),
+    };
+
+    (
+        ast::Program::analyze(&program).with_file(text).err(),
+        Some(create_document(&program, text)),
+    )
 }
 
 /// Get document comments, using lines above given line index. Only used to
@@ -432,24 +433,15 @@ fn find_related_call(
         .iter()
         .find(|func| span_contains(func.span(), &token_span))?;
 
-    // Replace with?
-    // parse::ExprTree::Expression(func.body())
-    // .pre_order_iter()
-    // .filter_map(|expr| if let parse::ExprTree::Call(call) = expr { Some(call) } else { None })
-    // .filter(|c| span_contains(c.span(), &token_span))
-    // .last()
-
-    let calls = parse::ExprTree::Expression(func.body())
+    parse::ExprTree::Expression(func.body())
         .pre_order_iter()
-        .filter_map(|expr| match expr {
-            parse::ExprTree::Call(call) => Some(call),
-            _ => None,
+        .filter_map(|expr| {
+            if let parse::ExprTree::Call(call) = expr {
+                Some(call)
+            } else {
+                None
+            }
         })
-        .collect::<Vec<_>>();
-
-    calls
-        .iter()
-        .copied()
-        .filter(|s| span_contains(s.span(), &token_span))
-        .next_back()
+        .filter(|c| span_contains(c.span(), &token_span))
+        .last()
 }

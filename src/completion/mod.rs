@@ -12,10 +12,13 @@ use tower_lsp_server::lsp_types::{
 #[derive(Debug)]
 pub struct CompletionProvider {
     /// All jets completions.
-    jets_completion: Vec<CompletionItem>,
+    jets: Vec<CompletionItem>,
 
     /// All builtin functions completions.
-    builtin_completion: Vec<CompletionItem>,
+    builtin: Vec<CompletionItem>,
+
+    /// Modules completions.
+    modules: Vec<CompletionItem>,
 }
 
 impl CompletionProvider {
@@ -30,20 +33,34 @@ impl CompletionProvider {
             .map(template_to_completion)
             .collect();
 
+        let modules_completion = [
+            ("jet", "Module which contains jets"),
+            ("param", "Module which contains parameters"),
+            ("witness", "Module which contains witnesses"),
+        ]
+        .iter()
+        .map(|(module, detail)| module_to_completion((*module).to_string(), (*detail).to_string()))
+        .collect();
         Self {
-            jets_completion,
-            builtin_completion,
+            jets: jets_completion,
+            builtin: builtin_completion,
+            modules: modules_completion,
         }
     }
 
     /// Return jets completions.
     pub fn jets(&self) -> &[CompletionItem] {
-        &self.jets_completion
+        &self.jets
     }
 
     /// Return builtin functions completions.
     pub fn builtins(&self) -> &[CompletionItem] {
-        &self.builtin_completion
+        &self.builtin
+    }
+
+    /// Return builtin functions completions.
+    pub fn modules(&self) -> &[CompletionItem] {
+        &self.modules
     }
 
     /// Get generic functions completions.
@@ -83,6 +100,19 @@ fn template_to_completion(func: &types::FunctionTemplate) -> CompletionItem {
         })),
         insert_text: Some(func.get_insert_text()),
         insert_text_format: Some(InsertTextFormat::SNIPPET),
+        ..Default::default()
+    }
+}
+
+/// Convert module to `CompletionItem`.
+fn module_to_completion(module: String, detail: String) -> CompletionItem {
+    CompletionItem {
+        label: module.clone(),
+        kind: Some(CompletionItemKind::MODULE),
+        detail: Some(detail),
+        documentation: None,
+        insert_text: Some(module),
+        insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
         ..Default::default()
     }
 }

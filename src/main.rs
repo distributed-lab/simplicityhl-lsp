@@ -1,5 +1,3 @@
-#![warn(clippy::all, clippy::pedantic)]
-
 mod backend;
 mod completion;
 mod utils;
