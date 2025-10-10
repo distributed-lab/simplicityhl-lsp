@@ -1,9 +1,28 @@
-#![allow(warnings)]
+use crate::completion::types;
 
-// copied from https://github.com/BlockstreamResearch/SimplicityHL/blob/master/codegen/src/jet.rs
-
+use simplicityhl::jet;
 use simplicityhl::simplicity::jet::Elements;
 
+/// Convert all jets to [`types::FunctionTemplate`].
+pub fn get_jets_completions() -> Vec<types::FunctionTemplate> {
+    Elements::ALL.iter().copied().map(jet_to_template).collect()
+}
+
+/// Convert [`Elements`] to [`types::FunctionTemplate`]
+pub fn jet_to_template(jet: Elements) -> types::FunctionTemplate {
+    types::FunctionTemplate::simple(
+        jet.to_string(),
+        jet::source_type(jet)
+            .iter()
+            .map(|item| format!("{item}"))
+            .collect::<Vec<String>>(),
+        jet::target_type(jet).to_string().as_str(),
+        documentation(jet),
+    )
+}
+
+// copied from https://github.com/BlockstreamResearch/SimplicityHL/blob/master/codegen/src/jet.rs
+#[allow(warnings)]
 #[rustfmt::skip]
 pub fn documentation(jet: Elements) -> &'static str {
     match jet {
@@ -35,7 +54,7 @@ pub fn documentation(jet: Elements) -> &'static str {
         Elements::Eq256 => "Check if two 256-bit values are equal.",
         Elements::FullLeftShift8_1    => "Helper for left-shifting  bits. The bits are shifted from a 1-bit  value into a 8-bit  value. Return the shifted value and the 1  bit  that was  shifted out.",
         Elements::FullLeftShift8_2    => "Helper for left-shifting  bits. The bits are shifted from a 2-bit  value into a 8-bit  value. Return the shifted value and the 2  bits that were shifted out.",
-        Elements::FullLeftShift8_4    => "Helper for left-shifting  bits. The bits are shifted from a 4-bit  value into a 8-bit  value. Return the shifted value and the 4  bits that were shifted out.",
+Elements::FullLeftShift8_4    => "Helper for left-shifting  bits. The bits are shifted from a 4-bit  value into a 8-bit  value. Return the shifted value and the 4  bits that were shifted out.",
         Elements::FullLeftShift16_1   => "Helper for left-shifting  bits. The bits are shifted from a 1-bit  value into a 16-bit value. Return the shifted value and the 1  bit  that was  shifted out.",
         Elements::FullLeftShift16_2   => "Helper for left-shifting  bits. The bits are shifted from a 2-bit  value into a 16-bit value. Return the shifted value and the 2  bits that were shifted out.",
         Elements::FullLeftShift16_4   => "Helper for left-shifting  bits. The bits are shifted from a 4-bit  value into a 16-bit value. Return the shifted value and the 4  bits that were shifted out.",
