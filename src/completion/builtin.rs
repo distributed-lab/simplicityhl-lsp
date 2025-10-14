@@ -9,16 +9,6 @@ use simplicityhl::{
 
 use crate::completion::types::FunctionTemplate;
 
-/// Macro to convert string literals into `Vec<String>`
-macro_rules! str_vec {
-    () => {
-        Vec::new()
-    };
-    ($($item:expr),+ $(,)?) => {
-        vec![$($item.to_string()),+]
-    };
-}
-
 /// Get completion of builtin functions. They are all defined in [`simplicityhl::parse::CallName`]
 pub fn get_builtin_functions() -> Vec<FunctionTemplate> {
     let ty = AliasedType::from(AliasName::from_str_unchecked("T"));
@@ -54,8 +44,8 @@ pub fn match_callname(call: &CallName) -> Option<FunctionTemplate> {
             Some(FunctionTemplate::new(
                 "unwrap_left",
                 "unwrap_left",
-                str_vec![format!("{ty}")],
-                str_vec![format!("Either<{ty}, U>")],
+                vec![format!("{ty}")],
+                vec![format!("Either<{ty}, U>")],
                 ty,
                 doc,
             ))
@@ -65,15 +55,15 @@ pub fn match_callname(call: &CallName) -> Option<FunctionTemplate> {
             Some(FunctionTemplate::new(
                 "unwrap_right",
                 "unwrap_right",
-                str_vec![format!("{ty}")],
-                str_vec![format!("Either<T, {ty}>")],
+                vec![format!("{ty}")],
+                vec![format!("Either<T, {ty}>")],
                 ty,
                 doc,
             ))
         }
         CallName::Unwrap => Some(FunctionTemplate::simple(
             "unwrap",
-            str_vec!["Option<T>"],
+            vec!["Option<T>".to_string()],
             "T",
             doc,
         )),
@@ -82,41 +72,52 @@ pub fn match_callname(call: &CallName) -> Option<FunctionTemplate> {
             Some(FunctionTemplate::new(
                 "is_none".to_string(),
                 "is_none",
-                str_vec![format!("{ty}")],
-                str_vec![format!("Option<{ty}>").as_str()],
+                vec![format!("{ty}")],
+                vec![format!("Option<{ty}>")],
                 "bool",
                 doc,
             ))
         }
         CallName::Assert => Some(FunctionTemplate::simple(
             "assert!",
-            str_vec!["condition: bool"],
+            vec!["condition: bool".to_string()],
             "()",
             doc,
         )),
-        CallName::Panic => Some(FunctionTemplate::simple("panic!", str_vec![], "()", doc)),
-        CallName::Debug => Some(FunctionTemplate::simple("dbg!", str_vec!["T"], "T", doc)),
+        CallName::Panic => Some(FunctionTemplate::simple("panic!", vec![], "()", doc)),
+        CallName::Debug => Some(FunctionTemplate::simple(
+            "dbg!",
+            vec!["T".to_string()],
+            "T",
+            doc,
+        )),
         CallName::Fold(_, _) => Some(FunctionTemplate::new(
             "fold",
             "fold",
-            str_vec!["f", "N"],
-            str_vec!["list: List<E,N>", "initial_accumulator: A"],
+            vec!["f".to_string(), "N".to_string()],
+            vec![
+                "list: List<E,N>".to_string(),
+                "initial_accumulator: A".to_string(),
+            ],
             "A",
             doc,
         )),
         CallName::ArrayFold(_, _) => Some(FunctionTemplate::new(
             "array_fold",
             "array_fold",
-            str_vec!["f", "N"],
-            str_vec!["array: [E; N]", "initial_accumulator: A"],
+            vec!["f".to_string(), "N".to_string()],
+            vec![
+                "array: [E; N]".to_string(),
+                "initial_accumulator: A".to_string(),
+            ],
             "A",
             doc,
         )),
         CallName::ForWhile(_) => Some(FunctionTemplate::new(
             "for_while",
             "for_while",
-            str_vec!["f"],
-            str_vec!["accumulator: A", "context: C"],
+            vec!["f".to_string()],
+            vec!["accumulator: A".to_string(), "context: C".to_string()],
             "Either<B, A>",
             doc,
         )),
