@@ -10,12 +10,12 @@ use tower_lsp_server::lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, ExecuteCommandParams, Hover, HoverParams, HoverProviderCapability,
-    InitializeParams, InitializeResult, InitializedParams, MarkupContent, MarkupKind, MessageType,
-    OneOf, Range, SaveOptions, SemanticTokensParams, SemanticTokensResult, ServerCapabilities,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
-    TextDocumentSyncSaveOptions, Uri, WorkDoneProgressOptions, WorkspaceFoldersServerCapabilities,
-    WorkspaceServerCapabilities,
+    DidSaveTextDocumentParams, ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse,
+    Hover, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
+    InitializedParams, Location, MarkupContent, MarkupKind, MessageType, OneOf, Range, SaveOptions,
+    SemanticTokensParams, SemanticTokensResult, ServerCapabilities, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncSaveOptions, Uri,
+    WorkDoneProgressOptions, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
 };
 use tower_lsp_server::{Client, LanguageServer};
 
@@ -83,6 +83,7 @@ impl LanguageServer for Backend {
                     file_operations: None,
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
+                definition_provider: Some(OneOf::Left(true)),
                 ..ServerCapabilities::default()
             },
         })
@@ -201,6 +202,41 @@ impl LanguageServer for Backend {
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         Ok(self.provide_hover(&params).await)
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let documents = self.document_map.read().await;
+        let uri = &params.text_document_position_params.text_document.uri;
+
+        let result = || -> Option<GotoDefinitionResponse> {
+            let document = documents.get(uri)?;
+
+            let token_position = params.text_document_position_params.position;
+            let token_span = positions_to_span((token_position, token_position)).ok()?;
+
+            let call = find_related_call(&document.functions, token_span)?;
+
+            match call.name() {
+                simplicityhl::parse::CallName::Custom(func) => {
+                    let function = document
+                        .functions
+                        .iter()
+                        .find(|function| function.name() == func)?;
+
+                    let (start, end) = span_to_positions(function.as_ref()).ok()?;
+                    Some(GotoDefinitionResponse::from(Location::new(
+                        uri.clone(),
+                        Range::new(start, end),
+                    )))
+                }
+                _ => None,
+            }
+        }();
+
+        Ok(result)
     }
 }
 
