@@ -1,6 +1,8 @@
 use ropey::Rope;
 use serde_json::Value;
+
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -19,6 +21,7 @@ use tower_lsp_server::lsp_types::{
 };
 use tower_lsp_server::{Client, LanguageServer};
 
+use simplicityhl::error::Position;
 use simplicityhl::{
     ast,
     error::{RichError, WithFile},
@@ -304,7 +307,7 @@ impl Backend {
         let token_span = positions_to_span((token_position, token_position)).ok()?;
 
         let call = find_related_call(&document.functions, token_span)?;
-        let (start, end) = span_to_positions(call.span()).ok()?;
+        let (start, end) = span_to_positions(&get_call_span(call)?).ok()?;
 
         let description = match call.name() {
             parse::CallName::Jet(jet) => {
@@ -473,11 +476,26 @@ fn find_related_call(
         .pre_order_iter()
         .filter_map(|expr| {
             if let parse::ExprTree::Call(call) = expr {
-                Some(call)
+                Some((call, get_call_span(call)?))
             } else {
                 None
             }
         })
-        .filter(|c| span_contains(c.span(), &token_span))
+        .filter(|(_, span)| span_contains(span, &token_span))
+        .map(|pair| pair.0)
         .last()
+}
+
+fn get_call_span(call: &simplicityhl::parse::Call) -> Option<simplicityhl::error::Span> {
+    let length = call.name().to_string().len();
+
+    let end_column = usize::from(call.span().start.col) + length;
+
+    Some(simplicityhl::error::Span {
+        start: call.span().start,
+        end: Position {
+            line: call.span().start.line,
+            col: NonZeroUsize::try_from(end_column).ok()?,
+        },
+    })
 }
