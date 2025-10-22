@@ -32,7 +32,7 @@ use simplicityhl::{
 use miniscript::iter::TreeLike;
 
 use crate::completion::{self, CompletionProvider};
-use crate::utils::{positions_to_span, span_contains, span_to_positions};
+use crate::utils::{position_to_span, span_contains, span_to_positions};
 
 #[derive(Debug)]
 struct Document {
@@ -218,9 +218,9 @@ impl LanguageServer for Backend {
             let document = documents.get(uri)?;
 
             let token_position = params.text_document_position_params.position;
-            let token_span = positions_to_span((token_position, token_position)).ok()?;
+            let token_span = position_to_span(token_position).ok()?;
 
-            let call = find_related_call(&document.functions, token_span)?;
+            let call = find_related_call(&document.functions, token_span).ok()?;
 
             match call.name() {
                 simplicityhl::parse::CallName::Custom(func) => {
@@ -300,14 +300,14 @@ impl Backend {
     /// Provide hover for [`Backend::hover`] function.
     async fn provide_hover(&self, params: &HoverParams) -> Option<Hover> {
         let documents = self.document_map.read().await;
-
         let document = documents.get(&params.text_document_position_params.text_document.uri)?;
 
-        let token_position = params.text_document_position_params.position;
-        let token_span = positions_to_span((token_position, token_position)).ok()?;
+        let token_pos = params.text_document_position_params.position;
+        let token_span = position_to_span(token_pos).ok()?;
 
-        let call = find_related_call(&document.functions, token_span)?;
-        let (start, end) = span_to_positions(&get_call_span(call)?).ok()?;
+        let call = find_related_call(&document.functions, token_span).ok()?;
+        let call_span = get_call_span(call).ok()?;
+        let (start, end) = span_to_positions(&call_span).ok()?;
 
         let description = match call.name() {
             parse::CallName::Jet(jet) => {
@@ -467,35 +467,42 @@ fn get_comments_from_lines(line: u32, rope: &Rope) -> String {
 fn find_related_call(
     functions: &[parse::Function],
     token_span: simplicityhl::error::Span,
-) -> Option<&simplicityhl::parse::Call> {
+) -> std::result::Result<&simplicityhl::parse::Call, &'static str> {
     let func = functions
         .iter()
-        .find(|func| span_contains(func.span(), &token_span))?;
+        .find(|func| span_contains(func.span(), &token_span))
+        .ok_or("given span not inside function")?;
 
-    parse::ExprTree::Expression(func.body())
+    let call = parse::ExprTree::Expression(func.body())
         .pre_order_iter()
         .filter_map(|expr| {
             if let parse::ExprTree::Call(call) = expr {
-                Some((call, get_call_span(call)?))
+                // Only include if call span can be obtained
+                get_call_span(call).ok().map(|span| (call, span))
             } else {
                 None
             }
         })
         .filter(|(_, span)| span_contains(span, &token_span))
-        .map(|pair| pair.0)
+        .map(|(call, _)| call)
         .last()
+        .ok_or("no related call found")?;
+
+    Ok(call)
 }
 
-fn get_call_span(call: &simplicityhl::parse::Call) -> Option<simplicityhl::error::Span> {
+fn get_call_span(
+    call: &simplicityhl::parse::Call,
+) -> std::result::Result<simplicityhl::error::Span, std::num::TryFromIntError> {
     let length = call.name().to_string().len();
 
     let end_column = usize::from(call.span().start.col) + length;
 
-    Some(simplicityhl::error::Span {
+    Ok(simplicityhl::error::Span {
         start: call.span().start,
         end: Position {
             line: call.span().start.line,
-            col: NonZeroUsize::try_from(end_column).ok()?,
+            col: NonZeroUsize::try_from(end_column)?,
         },
     })
 }

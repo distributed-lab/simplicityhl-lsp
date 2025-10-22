@@ -44,7 +44,8 @@ pub fn span_to_positions(
     ))
 }
 
-/// Convert [`tower_lsp_server::lsp_types::Position`] to [`simplicityhl::error::Span`]
+#[allow(dead_code)]
+/// Convert pair of [`tower_lsp_server::lsp_types::Position`] to [`simplicityhl::error::Span`]
 pub fn positions_to_span(
     positions: (lsp_types::Position, lsp_types::Position),
 ) -> Result<simplicityhl::error::Span> {
@@ -67,6 +68,28 @@ pub fn positions_to_span(
         end: simplicityhl::error::Position {
             line: end_line,
             col: end_col,
+        },
+    })
+}
+
+/// Convert [`tower_lsp_server::lsp_types::Position`] to [`simplicityhl::error::Span`]
+///
+/// Useful when [`tower_lsp_server::lsp_types::Position`] represents some singular point.
+pub fn position_to_span(position: lsp_types::Position) -> Result<simplicityhl::error::Span> {
+    let start_line = NonZeroUsize::new((position.line + 1) as usize)
+        .ok_or_else(|| Error::invalid_params("start line must be non-zero".to_string()))?;
+
+    let start_col = NonZeroUsize::new((position.character + 1) as usize)
+        .ok_or_else(|| Error::invalid_params("start column must be non-zero".to_string()))?;
+
+    Ok(simplicityhl::error::Span {
+        start: simplicityhl::error::Position {
+            line: start_line,
+            col: start_col,
+        },
+        end: simplicityhl::error::Position {
+            line: start_line,
+            col: start_col,
         },
     })
 }
