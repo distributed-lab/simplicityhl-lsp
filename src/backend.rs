@@ -2,7 +2,6 @@ use ropey::Rope;
 use serde_json::Value;
 
 use std::collections::HashMap;
-use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -21,7 +20,6 @@ use tower_lsp_server::lsp_types::{
 };
 use tower_lsp_server::{Client, LanguageServer};
 
-use simplicityhl::error::Position;
 use simplicityhl::{
     ast,
     error::{RichError, WithFile},
@@ -29,10 +27,10 @@ use simplicityhl::{
     parse::ParseFromStr,
 };
 
-use miniscript::iter::TreeLike;
-
 use crate::completion::{self, CompletionProvider};
-use crate::utils::{position_to_span, span_contains, span_to_positions};
+use crate::utils::{
+    find_related_call, get_call_span, get_comments_from_lines, position_to_span, span_to_positions,
+};
 
 #[derive(Debug)]
 struct Document {
@@ -402,105 +400,43 @@ fn parse_program(text: &str) -> (Option<RichError>, Option<Document>) {
     )
 }
 
-/// Get document comments, using lines above given line index. Only used to
-/// get documentation for custom functions.
-fn get_comments_from_lines(line: u32, rope: &Rope) -> String {
-    let mut lines = Vec::new();
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    if line == 0 {
-        return String::new();
+    fn sample_program() -> &'static str {
+        "fn add(a: u32, b: u32) -> u32 { let (_, res): (bool, u32) = jet::add_32(a, b); res }
+         fn main() {}"
     }
 
-    for i in (0..line).rev() {
-        let Some(rope_slice) = rope.get_line(i as usize) else {
-            break;
-        };
-        let text = rope_slice.to_string();
-
-        if text.starts_with("///") {
-            let doc = text
-                .strip_prefix("///")
-                .unwrap_or("")
-                .trim_end()
-                .to_string();
-            lines.push(doc);
-        } else {
-            break;
-        }
+    fn invalid_program_on_ast() -> &'static str {
+        "fn add(a: u32, b: u32) -> u32 {}"
     }
 
-    lines.reverse();
-
-    let mut result = String::new();
-    let mut prev_line_was_text = false;
-
-    for line in lines {
-        let trimmed = line.trim();
-
-        let is_md_block = trimmed.is_empty()
-            || trimmed.starts_with('#')
-            || trimmed.starts_with('-')
-            || trimmed.starts_with('*')
-            || trimmed.starts_with('>')
-            || trimmed.starts_with("```")
-            || trimmed.starts_with("    ");
-
-        if result.is_empty() {
-            result.push_str(trimmed);
-        } else if prev_line_was_text && !is_md_block {
-            result.push(' ');
-            result.push_str(trimmed);
-        } else {
-            result.push('\n');
-            result.push_str(trimmed);
-        }
-
-        prev_line_was_text = !trimmed.is_empty() && !is_md_block;
+    fn invalid_program_on_parsing() -> &'static str {
+        "fn add(a: u32 b: u32) -> u32 {}"
     }
 
-    result
-}
+    #[test]
+    fn test_parse_program_valid() {
+        let (err, doc) = parse_program(sample_program());
+        assert!(err.is_none(), "Expected no parsing error");
+        let doc = doc.expect("Expected Some(Document)");
+        assert_eq!(doc.functions.len(), 2);
+        assert!(doc.functions_docs.contains_key("add"));
+    }
 
-/// Find [`simplicityhl::parse::Call`] which contains given [`simplicityhl::error::Span`], which also have minimal Span.
-fn find_related_call(
-    functions: &[parse::Function],
-    token_span: simplicityhl::error::Span,
-) -> std::result::Result<&simplicityhl::parse::Call, &'static str> {
-    let func = functions
-        .iter()
-        .find(|func| span_contains(func.span(), &token_span))
-        .ok_or("given span not inside function")?;
+    #[test]
+    fn test_parse_program_invalid_ast() {
+        let (err, doc) = parse_program(invalid_program_on_ast());
+        assert!(err.is_some(), "Expected a parsing error");
+        assert!(doc.is_some(), "Expected problem in AST build");
+    }
 
-    let call = parse::ExprTree::Expression(func.body())
-        .pre_order_iter()
-        .filter_map(|expr| {
-            if let parse::ExprTree::Call(call) = expr {
-                // Only include if call span can be obtained
-                get_call_span(call).ok().map(|span| (call, span))
-            } else {
-                None
-            }
-        })
-        .filter(|(_, span)| span_contains(span, &token_span))
-        .map(|(call, _)| call)
-        .last()
-        .ok_or("no related call found")?;
-
-    Ok(call)
-}
-
-fn get_call_span(
-    call: &simplicityhl::parse::Call,
-) -> std::result::Result<simplicityhl::error::Span, std::num::TryFromIntError> {
-    let length = call.name().to_string().len();
-
-    let end_column = usize::from(call.span().start.col) + length;
-
-    Ok(simplicityhl::error::Span {
-        start: call.span().start,
-        end: Position {
-            line: call.span().start.line,
-            col: NonZeroUsize::try_from(end_column)?,
-        },
-    })
+    #[test]
+    fn test_parse_program_invalid_parse() {
+        let (err, doc) = parse_program(invalid_program_on_parsing());
+        assert!(err.is_some(), "Expected a parsing error");
+        assert!(doc.is_none(), "Expected no document to return");
+    }
 }
