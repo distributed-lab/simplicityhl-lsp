@@ -147,60 +147,7 @@ impl LanguageServer for Backend {
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let uri = &params.text_document_position.text_document.uri;
-        let pos = params.text_document_position.position;
-        let documents = self.document_map.read().await;
-
-        let Some(doc) = documents.get(uri) else {
-            return Ok(Some(CompletionResponse::Array(vec![])));
-        };
-
-        let Some(line) = doc.text.lines().nth(pos.line as usize) else {
-            return Ok(Some(CompletionResponse::Array(vec![])));
-        };
-
-        let Some(slice) = line.get_slice(..pos.character as usize) else {
-            return Ok(Some(CompletionResponse::Array(vec![])));
-        };
-
-        let Some(prefix) = slice.as_str() else {
-            return Ok(Some(CompletionResponse::Array(vec![])));
-        };
-
-        let trimmed_prefix = prefix.trim_end();
-
-        if let Some(last) = trimmed_prefix
-            .rsplit(|c: char| !c.is_alphanumeric() && c != ':')
-            .next()
-        {
-            if last.starts_with("jet:::") {
-                return Ok(Some(CompletionResponse::Array(vec![])));
-            } else if last == "jet::" || last.starts_with("jet::") {
-                return Ok(Some(CompletionResponse::Array(
-                    self.completion_provider.jets().to_vec(),
-                )));
-            }
-        // completion after colon needed only for jets
-        } else if trimmed_prefix.ends_with(':') {
-            return Ok(Some(CompletionResponse::Array(vec![])));
-        }
-
-        let mut completions = CompletionProvider::get_function_completions(
-            &doc.functions
-                .iter()
-                .map(|func| {
-                    let function_doc = doc
-                        .functions_docs
-                        .get(&func.name().to_string())
-                        .map_or(String::new(), String::clone);
-                    (func.to_owned(), function_doc)
-                })
-                .collect::<Vec<_>>(),
-        );
-        completions.extend_from_slice(self.completion_provider.builtins());
-        completions.extend_from_slice(self.completion_provider.modules());
-
-        Ok(Some(CompletionResponse::Array(completions)))
+        Ok(self.provide_completion(&params).await)
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
@@ -211,35 +158,7 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let documents = self.document_map.read().await;
-        let uri = &params.text_document_position_params.text_document.uri;
-
-        let result = || -> Option<GotoDefinitionResponse> {
-            let document = documents.get(uri)?;
-
-            let token_position = params.text_document_position_params.position;
-            let token_span = position_to_span(token_position).ok()?;
-
-            let call = find_related_call(&document.functions, token_span).ok()?;
-
-            match call.name() {
-                simplicityhl::parse::CallName::Custom(func) => {
-                    let function = document
-                        .functions
-                        .iter()
-                        .find(|function| function.name() == func)?;
-
-                    let (start, end) = span_to_positions(function.as_ref()).ok()?;
-                    Some(GotoDefinitionResponse::from(Location::new(
-                        uri.clone(),
-                        Range::new(start, end),
-                    )))
-                }
-                _ => None,
-            }
-        }();
-
-        Ok(result)
+        Ok(self.provide_goto_definition(&params).await)
     }
 }
 
@@ -295,6 +214,53 @@ impl Backend {
                     .await;
             }
         }
+    }
+
+    /// Provide completion for [`Backend::completion`] function.
+    async fn provide_completion(&self, params: &CompletionParams) -> Option<CompletionResponse> {
+        let uri = &params.text_document_position.text_document.uri;
+        let pos = params.text_document_position.position;
+        let documents = self.document_map.read().await;
+
+        let doc = documents.get(uri)?;
+        let line = doc.text.lines().nth(pos.line as usize)?;
+        let slice = line.get_slice(..pos.character as usize)?;
+        let prefix = slice.as_str()?;
+
+        let trimmed_prefix = prefix.trim_end();
+
+        if let Some(last) = trimmed_prefix
+            .rsplit(|c: char| !c.is_alphanumeric() && c != ':')
+            .next()
+        {
+            if last.starts_with("jet:::") {
+                return None;
+            } else if last == "jet::" || last.starts_with("jet::") {
+                return Some(CompletionResponse::Array(
+                    self.completion_provider.jets().to_vec(),
+                ));
+            }
+        // completion after colon needed only for jets
+        } else if trimmed_prefix.ends_with(':') {
+            return None;
+        }
+
+        let mut completions = CompletionProvider::get_function_completions(
+            &doc.functions
+                .iter()
+                .map(|func| {
+                    let function_doc = doc
+                        .functions_docs
+                        .get(&func.name().to_string())
+                        .map_or(String::new(), String::clone);
+                    (func.to_owned(), function_doc)
+                })
+                .collect::<Vec<_>>(),
+        );
+        completions.extend_from_slice(self.completion_provider.builtins());
+        completions.extend_from_slice(self.completion_provider.modules());
+
+        Some(CompletionResponse::Array(completions))
     }
 
     /// Provide hover for [`Backend::hover`] function.
@@ -356,6 +322,38 @@ impl Backend {
             }),
             range: Some(Range { start, end }),
         })
+    }
+
+    /// Provide goto defintion functionality for [`Backend::goto_definition`] function.
+    async fn provide_goto_definition(
+        &self,
+        params: &GotoDefinitionParams,
+    ) -> Option<GotoDefinitionResponse> {
+        let documents = self.document_map.read().await;
+        let uri = &params.text_document_position_params.text_document.uri;
+
+        let document = documents.get(uri)?;
+
+        let token_position = params.text_document_position_params.position;
+        let token_span = position_to_span(token_position).ok()?;
+
+        let call = find_related_call(&document.functions, token_span).ok()?;
+
+        match call.name() {
+            simplicityhl::parse::CallName::Custom(func) => {
+                let function = document
+                    .functions
+                    .iter()
+                    .find(|function| function.name() == func)?;
+
+                let (start, end) = span_to_positions(function.as_ref()).ok()?;
+                Some(GotoDefinitionResponse::from(Location::new(
+                    uri.clone(),
+                    Range::new(start, end),
+                )))
+            }
+            _ => None,
+        }
     }
 }
 
