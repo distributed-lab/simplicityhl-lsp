@@ -54,7 +54,7 @@ pub fn documentation(jet: Elements) -> &'static str {
         Elements::Eq256 => "Check if two 256-bit values are equal.",
         Elements::FullLeftShift8_1    => "Helper for left-shifting  bits. The bits are shifted from a 1-bit  value into a 8-bit  value. Return the shifted value and the 1  bit  that was  shifted out.",
         Elements::FullLeftShift8_2    => "Helper for left-shifting  bits. The bits are shifted from a 2-bit  value into a 8-bit  value. Return the shifted value and the 2  bits that were shifted out.",
-Elements::FullLeftShift8_4    => "Helper for left-shifting  bits. The bits are shifted from a 4-bit  value into a 8-bit  value. Return the shifted value and the 4  bits that were shifted out.",
+        Elements::FullLeftShift8_4    => "Helper for left-shifting  bits. The bits are shifted from a 4-bit  value into a 8-bit  value. Return the shifted value and the 4  bits that were shifted out.",
         Elements::FullLeftShift16_1   => "Helper for left-shifting  bits. The bits are shifted from a 1-bit  value into a 16-bit value. Return the shifted value and the 1  bit  that was  shifted out.",
         Elements::FullLeftShift16_2   => "Helper for left-shifting  bits. The bits are shifted from a 2-bit  value into a 16-bit value. Return the shifted value and the 2  bits that were shifted out.",
         Elements::FullLeftShift16_4   => "Helper for left-shifting  bits. The bits are shifted from a 4-bit  value into a 16-bit value. Return the shifted value and the 4  bits that were shifted out.",
