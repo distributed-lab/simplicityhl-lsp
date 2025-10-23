@@ -28,14 +28,14 @@ use simplicityhl::{
 };
 
 use crate::completion::{self, CompletionProvider};
+use crate::function::Functions;
 use crate::utils::{
     find_related_call, get_call_span, get_comments_from_lines, position_to_span, span_to_positions,
 };
 
 #[derive(Debug)]
 struct Document {
-    functions: Vec<parse::Function>,
-    functions_docs: HashMap<String, String>,
+    functions: Functions,
     text: Rope,
 }
 
@@ -243,18 +243,8 @@ impl Backend {
             return None;
         }
 
-        let mut completions = CompletionProvider::get_function_completions(
-            &doc.functions
-                .iter()
-                .map(|func| {
-                    let function_doc = doc
-                        .functions_docs
-                        .get(&func.name().to_string())
-                        .map_or(String::new(), String::clone);
-                    (func.to_owned(), function_doc)
-                })
-                .collect::<Vec<_>>(),
-        );
+        let mut completions =
+            CompletionProvider::get_function_completions(&doc.functions.functions_and_docs());
         completions.extend_from_slice(self.completion_provider.builtins());
         completions.extend_from_slice(self.completion_provider.modules());
 
@@ -269,8 +259,8 @@ impl Backend {
         let token_pos = params.text_document_position_params.position;
         let token_span = position_to_span(token_pos).ok()?;
 
-        let call = find_related_call(&document.functions, token_span).ok()?;
-        let call_span = get_call_span(call).ok()?;
+        let call = find_related_call(&document.functions.functions(), token_span).ok()?;
+        let call_span = get_call_span(&call).ok()?;
         let (start, end) = span_to_positions(&call_span).ok()?;
 
         let description = match call.name() {
@@ -289,8 +279,7 @@ impl Backend {
                 )
             }
             parse::CallName::Custom(func) => {
-                let function = document.functions.iter().find(|f| f.name() == func)?;
-                let function_doc = document.functions_docs.get(&func.to_string())?;
+                let (function, function_doc) = document.functions.get(func.as_inner())?;
 
                 let template = completion::function_to_template(function, function_doc);
                 format!(
@@ -335,14 +324,11 @@ impl Backend {
         let token_position = params.text_document_position_params.position;
         let token_span = position_to_span(token_position).ok()?;
 
-        let call = find_related_call(&document.functions, token_span).ok()?;
+        let call = find_related_call(&document.functions.functions(), token_span).ok()?;
 
         match call.name() {
             simplicityhl::parse::CallName::Custom(func) => {
-                let function = document
-                    .functions
-                    .iter()
-                    .find(|function| function.name() == func)?;
+                let function = document.functions.get_func(func.as_inner())?;
 
                 let (start, end) = span_to_positions(function.as_ref()).ok()?;
                 Some(GotoDefinitionResponse::from(Location::new(
@@ -358,8 +344,7 @@ impl Backend {
 /// Create [`Document`] using parsed program and code.
 fn create_document(program: &simplicityhl::parse::Program, text: &str) -> Document {
     let mut document = Document {
-        functions: vec![],
-        functions_docs: HashMap::new(),
+        functions: Functions::new(),
         text: Rope::from_str(text),
     };
 
@@ -376,9 +361,9 @@ fn create_document(program: &simplicityhl::parse::Program, text: &str) -> Docume
         .for_each(|func| {
             let start_line = u32::try_from(func.as_ref().start.line.get()).unwrap_or_default() - 1;
 
-            document.functions.push(func.to_owned());
-            document.functions_docs.insert(
+            document.functions.insert(
                 func.name().to_string(),
+                func.to_owned(),
                 get_comments_from_lines(start_line, &document.text),
             );
         });
@@ -423,7 +408,6 @@ mod tests {
         assert!(err.is_none(), "Expected no parsing error");
         let doc = doc.expect("Expected Some(Document)");
         assert_eq!(doc.functions.len(), 2);
-        assert!(doc.functions_docs.contains_key("add"));
     }
 
     #[test]

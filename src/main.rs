@@ -1,5 +1,6 @@
 mod backend;
 mod completion;
+mod function;
 mod utils;
 
 use backend::Backend;

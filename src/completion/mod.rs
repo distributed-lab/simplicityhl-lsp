@@ -64,7 +64,7 @@ impl CompletionProvider {
     }
 
     /// Get generic functions completions.
-    pub fn get_function_completions(functions: &[(Function, String)]) -> Vec<CompletionItem> {
+    pub fn get_function_completions(functions: &Vec<(&Function, &String)>) -> Vec<CompletionItem> {
         functions
             .iter()
             .map(|(func, doc)| {
