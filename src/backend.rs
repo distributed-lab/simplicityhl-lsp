@@ -427,7 +427,7 @@ mod tests {
             err.unwrap()
                 .to_string()
                 .contains("Expected expression of type `u32`, found type `()`"),
-            "Exprected error on return type"
+            "Expected error on return type"
         );
         assert!(doc.is_some(), "Expected problem in AST build, not parse");
     }
@@ -437,7 +437,7 @@ mod tests {
         let (err, doc) = parse_program(invalid_program_on_parsing());
         assert!(
             err.unwrap().to_string().contains("Grammar error"),
-            "Exprected grammar error"
+            "Expected `Grammar error`"
         );
         assert!(doc.is_none(), "Expected no document to return");
     }
