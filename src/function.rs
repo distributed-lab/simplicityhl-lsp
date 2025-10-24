@@ -8,7 +8,6 @@ pub struct Functions {
     pub map: HashMap<String, (Function, String)>,
 }
 
-#[allow(dead_code)]
 impl Functions {
     /// Creates a new, empty `Functions` structure.
     pub fn new() -> Self {
@@ -32,29 +31,9 @@ impl Functions {
         self.map.get(name).map(|(func, _)| func)
     }
 
-    /// Retrieves a reference to the function's documentation.
-    pub fn get_doc(&self, name: &str) -> Option<&String> {
-        self.map.get(name).map(|(_, doc)| doc)
-    }
-
-    /// Returns lenght of inner map.
-    pub fn len(&self) -> usize {
-        self.map.len()
-    }
-
-    /// Returns all function names.
-    pub fn keys(&self) -> impl Iterator<Item = &String> {
-        self.map.keys()
-    }
-
     /// Returns a vector of all parsed functions.
     pub fn functions(&self) -> Vec<&Function> {
         self.map.values().map(|(func, _)| func).collect()
-    }
-
-    /// Returns a vector of all function document strings.
-    pub fn documentations(&self) -> Vec<&String> {
-        self.map.values().map(|(_, doc)| doc).collect()
     }
 
     /// Returns a vector of (function name, function) pairs.

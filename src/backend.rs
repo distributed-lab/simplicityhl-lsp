@@ -145,18 +145,154 @@ impl LanguageServer for Backend {
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        Ok(self.provide_completion(&params).await)
+        let uri = &params.text_document_position.text_document.uri;
+        let pos = params.text_document_position.position;
+        let documents = self.document_map.read().await;
+
+        let Some(doc) = documents.get(uri) else {
+            return Ok(Some(CompletionResponse::Array(vec![])));
+        };
+        let Some(line) = doc.text.lines().nth(pos.line as usize) else {
+            return Ok(Some(CompletionResponse::Array(vec![])));
+        };
+        let Some(slice) = line.get_slice(..pos.character as usize) else {
+            return Ok(Some(CompletionResponse::Array(vec![])));
+        };
+        let Some(prefix) = slice.as_str() else {
+            return Ok(Some(CompletionResponse::Array(vec![])));
+        };
+
+        let trimmed_prefix = prefix.trim_end();
+
+        if let Some(last) = trimmed_prefix
+            .rsplit(|c: char| !c.is_alphanumeric() && c != ':')
+            .next()
+        {
+            if last.starts_with("jet:::") {
+                return Ok(Some(CompletionResponse::Array(vec![])));
+            } else if last == "jet::" || last.starts_with("jet::") {
+                return Ok(Some(CompletionResponse::Array(
+                    self.completion_provider.jets().to_vec(),
+                )));
+            }
+        // Completion after a colon is needed only for jets.
+        } else if trimmed_prefix.ends_with(':') {
+            return Ok(Some(CompletionResponse::Array(vec![])));
+        }
+
+        let mut completions =
+            CompletionProvider::get_function_completions(&doc.functions.functions_and_docs());
+        completions.extend_from_slice(self.completion_provider.builtins());
+        completions.extend_from_slice(self.completion_provider.modules());
+
+        Ok(Some(CompletionResponse::Array(completions)))
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        Ok(self.provide_hover(&params).await)
+        let documents = self.document_map.read().await;
+        let Some(document) = documents.get(&params.text_document_position_params.text_document.uri)
+        else {
+            return Err(tower_lsp_server::jsonrpc::Error::internal_error());
+        };
+
+        let token_pos = params.text_document_position_params.position;
+        let token_span = position_to_span(token_pos)?;
+
+        let Ok(call) = find_related_call(&document.functions.functions(), token_span) else {
+            return Ok(None);
+        };
+
+        let Ok(call_span) = get_call_span(&call) else {
+            return Ok(None);
+        };
+        let (start, end) = span_to_positions(&call_span)?;
+
+        let description = match call.name() {
+            parse::CallName::Jet(jet) => {
+                let Ok(element) =
+                    simplicityhl::simplicity::jet::Elements::from_str(format!("{jet}").as_str())
+                else {
+                    return Ok(None);
+                };
+
+                let template = completion::jet::jet_to_template(element);
+                format!(
+                    "```simplicityhl\nfn jet::{}({}) -> {}\n```\n{}",
+                    template.display_name,
+                    template.args.join(", "),
+                    template.return_type,
+                    template.description
+                )
+            }
+            parse::CallName::Custom(func) => {
+                let Some((function, function_doc)) = document.functions.get(func.as_inner()) else {
+                    return Ok(None);
+                };
+
+                let template = completion::function_to_template(function, function_doc);
+                format!(
+                    "```simplicityhl\nfn {}({}) -> {}\n```\n{}",
+                    template.display_name,
+                    template.args.join(", "),
+                    template.return_type,
+                    template.description
+                )
+            }
+            other => {
+                let Some(template) = completion::builtin::match_callname(other) else {
+                    return Ok(None);
+                };
+                format!(
+                    "```simplicityhl\nfn {}({}) -> {}\n```\n{}",
+                    template.display_name,
+                    template.args.join(", "),
+                    template.return_type,
+                    template.description
+                )
+            }
+        };
+
+        Ok(Some(Hover {
+            contents: tower_lsp_server::lsp_types::HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: description,
+            }),
+            range: Some(Range { start, end }),
+        }))
     }
 
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        Ok(self.provide_goto_definition(&params).await)
+        let documents = self.document_map.read().await;
+        let uri = &params.text_document_position_params.text_document.uri;
+
+        let Some(document) = documents.get(uri) else {
+            return Err(tower_lsp_server::jsonrpc::Error::internal_error());
+        };
+
+        let token_position = params.text_document_position_params.position;
+        let token_span = position_to_span(token_position)?;
+
+        let Ok(call) = find_related_call(&document.functions.functions(), token_span) else {
+            return Ok(None);
+        };
+
+        match call.name() {
+            simplicityhl::parse::CallName::Custom(func) => {
+                let Some(function) = document.functions.get_func(func.as_inner()) else {
+                    return Ok(None);
+                };
+
+                let (start, end) = span_to_positions(function.as_ref())?;
+                Ok(Some(GotoDefinitionResponse::from(Location::new(
+                    uri.clone(),
+                    Range::new(start, end),
+                ))))
+            }
+            _ => Ok(None),
+        }
     }
 }
 
@@ -211,132 +347,6 @@ impl Backend {
                     )
                     .await;
             }
-        }
-    }
-
-    /// Provide completion for [`Backend::completion`] function.
-    async fn provide_completion(&self, params: &CompletionParams) -> Option<CompletionResponse> {
-        let uri = &params.text_document_position.text_document.uri;
-        let pos = params.text_document_position.position;
-        let documents = self.document_map.read().await;
-
-        let doc = documents.get(uri)?;
-        let line = doc.text.lines().nth(pos.line as usize)?;
-        let slice = line.get_slice(..pos.character as usize)?;
-        let prefix = slice.as_str()?;
-
-        let trimmed_prefix = prefix.trim_end();
-
-        if let Some(last) = trimmed_prefix
-            .rsplit(|c: char| !c.is_alphanumeric() && c != ':')
-            .next()
-        {
-            if last.starts_with("jet:::") {
-                return None;
-            } else if last == "jet::" || last.starts_with("jet::") {
-                return Some(CompletionResponse::Array(
-                    self.completion_provider.jets().to_vec(),
-                ));
-            }
-        // completion after colon needed only for jets
-        } else if trimmed_prefix.ends_with(':') {
-            return None;
-        }
-
-        let mut completions =
-            CompletionProvider::get_function_completions(&doc.functions.functions_and_docs());
-        completions.extend_from_slice(self.completion_provider.builtins());
-        completions.extend_from_slice(self.completion_provider.modules());
-
-        Some(CompletionResponse::Array(completions))
-    }
-
-    /// Provide hover for [`Backend::hover`] function.
-    async fn provide_hover(&self, params: &HoverParams) -> Option<Hover> {
-        let documents = self.document_map.read().await;
-        let document = documents.get(&params.text_document_position_params.text_document.uri)?;
-
-        let token_pos = params.text_document_position_params.position;
-        let token_span = position_to_span(token_pos).ok()?;
-
-        let call = find_related_call(&document.functions.functions(), token_span).ok()?;
-        let call_span = get_call_span(&call).ok()?;
-        let (start, end) = span_to_positions(&call_span).ok()?;
-
-        let description = match call.name() {
-            parse::CallName::Jet(jet) => {
-                let element =
-                    simplicityhl::simplicity::jet::Elements::from_str(format!("{jet}").as_str())
-                        .ok()?;
-
-                let template = completion::jet::jet_to_template(element);
-                format!(
-                    "```simplicityhl\nfn jet::{}({}) -> {}\n```\n{}",
-                    template.display_name,
-                    template.args.join(", "),
-                    template.return_type,
-                    template.description
-                )
-            }
-            parse::CallName::Custom(func) => {
-                let (function, function_doc) = document.functions.get(func.as_inner())?;
-
-                let template = completion::function_to_template(function, function_doc);
-                format!(
-                    "```simplicityhl\nfn {}({}) -> {}\n```\n{}",
-                    template.display_name,
-                    template.args.join(", "),
-                    template.return_type,
-                    template.description
-                )
-            }
-            other => {
-                let template = completion::builtin::match_callname(other)?;
-                format!(
-                    "```simplicityhl\nfn {}({}) -> {}\n```\n{}",
-                    template.display_name,
-                    template.args.join(", "),
-                    template.return_type,
-                    template.description
-                )
-            }
-        };
-
-        Some(Hover {
-            contents: tower_lsp_server::lsp_types::HoverContents::Markup(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value: description,
-            }),
-            range: Some(Range { start, end }),
-        })
-    }
-
-    /// Provide goto defintion functionality for [`Backend::goto_definition`] function.
-    async fn provide_goto_definition(
-        &self,
-        params: &GotoDefinitionParams,
-    ) -> Option<GotoDefinitionResponse> {
-        let documents = self.document_map.read().await;
-        let uri = &params.text_document_position_params.text_document.uri;
-
-        let document = documents.get(uri)?;
-
-        let token_position = params.text_document_position_params.position;
-        let token_span = position_to_span(token_position).ok()?;
-
-        let call = find_related_call(&document.functions.functions(), token_span).ok()?;
-
-        match call.name() {
-            simplicityhl::parse::CallName::Custom(func) => {
-                let function = document.functions.get_func(func.as_inner())?;
-
-                let (start, end) = span_to_positions(function.as_ref()).ok()?;
-                Some(GotoDefinitionResponse::from(Location::new(
-                    uri.clone(),
-                    Range::new(start, end),
-                )))
-            }
-            _ => None,
         }
     }
 }
@@ -407,20 +417,28 @@ mod tests {
         let (err, doc) = parse_program(sample_program());
         assert!(err.is_none(), "Expected no parsing error");
         let doc = doc.expect("Expected Some(Document)");
-        assert_eq!(doc.functions.len(), 2);
+        assert_eq!(doc.functions.map.len(), 2);
     }
 
     #[test]
     fn test_parse_program_invalid_ast() {
         let (err, doc) = parse_program(invalid_program_on_ast());
-        assert!(err.is_some(), "Expected a parsing error");
-        assert!(doc.is_some(), "Expected problem in AST build");
+        assert!(
+            err.unwrap()
+                .to_string()
+                .contains("Expected expression of type `u32`, found type `()`"),
+            "Exprected error on return type"
+        );
+        assert!(doc.is_some(), "Expected problem in AST build, not parse");
     }
 
     #[test]
     fn test_parse_program_invalid_parse() {
         let (err, doc) = parse_program(invalid_program_on_parsing());
-        assert!(err.is_some(), "Expected a parsing error");
+        assert!(
+            err.unwrap().to_string().contains("Grammar error"),
+            "Exprected grammar error"
+        );
         assert!(doc.is_none(), "Expected no document to return");
     }
 }
