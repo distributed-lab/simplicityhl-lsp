@@ -2,6 +2,7 @@
 
 mod backend;
 mod completion;
+mod error;
 mod function;
 mod utils;
 

@@ -2,9 +2,9 @@ use std::num::NonZeroUsize;
 
 use miniscript::iter::TreeLike;
 
+use crate::error::LspError;
 use ropey::Rope;
 use simplicityhl::parse;
-use tower_lsp_server::jsonrpc::{Error, Result};
 use tower_lsp_server::lsp_types;
 
 fn position_le(a: &simplicityhl::error::Position, b: &simplicityhl::error::Position) -> bool {
@@ -26,15 +26,11 @@ pub fn span_contains(a: &simplicityhl::error::Span, b: &simplicityhl::error::Spa
 /// `Position` required for diagnostic starts with zero
 pub fn span_to_positions(
     span: &simplicityhl::error::Span,
-) -> Result<(lsp_types::Position, lsp_types::Position)> {
-    let start_line = u32::try_from(span.start.line.get())
-        .map_err(|e| Error::invalid_params(format!("line overflow: {e}")))?;
-    let start_col = u32::try_from(span.start.col.get())
-        .map_err(|e| Error::invalid_params(format!("col overflow: {e}")))?;
-    let end_line = u32::try_from(span.end.line.get())
-        .map_err(|e| Error::invalid_params(format!("line overflow: {e}")))?;
-    let end_col = u32::try_from(span.end.col.get())
-        .map_err(|e| Error::invalid_params(format!("col overflow: {e}")))?;
+) -> Result<(lsp_types::Position, lsp_types::Position), LspError> {
+    let start_line = u32::try_from(span.start.line.get())?;
+    let start_col = u32::try_from(span.start.col.get())?;
+    let end_line = u32::try_from(span.end.line.get())?;
+    let end_col = u32::try_from(span.end.col.get())?;
 
     Ok((
         lsp_types::Position {
@@ -48,43 +44,14 @@ pub fn span_to_positions(
     ))
 }
 
-#[allow(dead_code)]
-/// Convert pair of [`tower_lsp_server::lsp_types::Position`] to [`simplicityhl::error::Span`]
-pub fn positions_to_span(
-    positions: (lsp_types::Position, lsp_types::Position),
-) -> Result<simplicityhl::error::Span> {
-    let start_line = NonZeroUsize::new((positions.0.line + 1) as usize)
-        .ok_or_else(|| Error::invalid_params("start line must be non-zero".to_string()))?;
-
-    let start_col = NonZeroUsize::new((positions.0.character + 1) as usize)
-        .ok_or_else(|| Error::invalid_params("start column must be non-zero".to_string()))?;
-
-    let end_line = NonZeroUsize::new((positions.1.line + 1) as usize)
-        .ok_or_else(|| Error::invalid_params("end line must be non-zero".to_string()))?;
-
-    let end_col = NonZeroUsize::new((positions.1.character + 1) as usize)
-        .ok_or_else(|| Error::invalid_params("end column must be non-zero".to_string()))?;
-    Ok(simplicityhl::error::Span {
-        start: simplicityhl::error::Position {
-            line: start_line,
-            col: start_col,
-        },
-        end: simplicityhl::error::Position {
-            line: end_line,
-            col: end_col,
-        },
-    })
-}
-
 /// Convert [`tower_lsp_server::lsp_types::Position`] to [`simplicityhl::error::Span`]
 ///
 /// Useful when [`tower_lsp_server::lsp_types::Position`] represents some singular point.
-pub fn position_to_span(position: lsp_types::Position) -> Result<simplicityhl::error::Span> {
-    let start_line = NonZeroUsize::new((position.line + 1) as usize)
-        .ok_or_else(|| Error::invalid_params("start line must be non-zero".to_string()))?;
-
-    let start_col = NonZeroUsize::new((position.character + 1) as usize)
-        .ok_or_else(|| Error::invalid_params("start column must be non-zero".to_string()))?;
+pub fn position_to_span(
+    position: lsp_types::Position,
+) -> Result<simplicityhl::error::Span, LspError> {
+    let start_line = NonZeroUsize::try_from((position.line + 1) as usize)?;
+    let start_col = NonZeroUsize::try_from((position.character + 1) as usize)?;
 
     Ok(simplicityhl::error::Span {
         start: simplicityhl::error::Position {
@@ -161,11 +128,13 @@ pub fn get_comments_from_lines(line: u32, rope: &Rope) -> String {
 pub fn find_related_call(
     functions: &[&parse::Function],
     token_span: simplicityhl::error::Span,
-) -> std::result::Result<simplicityhl::parse::Call, &'static str> {
+) -> Result<Option<simplicityhl::parse::Call>, LspError> {
     let func = functions
         .iter()
         .find(|func| span_contains(func.span(), &token_span))
-        .ok_or("given span not inside function")?;
+        .ok_or(LspError::CallNotFound(
+            "Span of the call is not inside function.".into(),
+        ))?;
 
     let call = parse::ExprTree::Expression(func.body())
         .pre_order_iter()
@@ -178,16 +147,15 @@ pub fn find_related_call(
             }
         })
         .filter(|(_, span)| span_contains(span, &token_span))
-        .map(|(call, _)| call)
-        .last()
-        .ok_or("no related call found")?;
+        .map(|(call, _)| call.clone())
+        .last();
 
-    Ok(call.to_owned())
+    Ok(call)
 }
 
 pub fn get_call_span(
     call: &simplicityhl::parse::Call,
-) -> std::result::Result<simplicityhl::error::Span, std::num::TryFromIntError> {
+) -> Result<simplicityhl::error::Span, LspError> {
     let length = call.name().to_string().len();
 
     let end_column = usize::from(call.span().start.col) + length;

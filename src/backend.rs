@@ -28,6 +28,7 @@ use simplicityhl::{
 };
 
 use crate::completion::{self, CompletionProvider};
+use crate::error::LspError;
 use crate::function::Functions;
 use crate::utils::{
     find_related_call, get_call_span, get_comments_from_lines, position_to_span, span_to_positions,
@@ -145,22 +146,30 @@ impl LanguageServer for Backend {
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let uri = &params.text_document_position.text_document.uri;
-        let pos = params.text_document_position.position;
         let documents = self.document_map.read().await;
+        let uri = &params.text_document_position.text_document.uri;
 
-        let Some(doc) = documents.get(uri) else {
-            return Ok(Some(CompletionResponse::Array(vec![])));
-        };
-        let Some(line) = doc.text.lines().nth(pos.line as usize) else {
-            return Ok(Some(CompletionResponse::Array(vec![])));
-        };
-        let Some(slice) = line.get_slice(..pos.character as usize) else {
-            return Ok(Some(CompletionResponse::Array(vec![])));
-        };
-        let Some(prefix) = slice.as_str() else {
-            return Ok(Some(CompletionResponse::Array(vec![])));
-        };
+        let doc = documents
+            .get(uri)
+            .ok_or(LspError::DocumentNotFound(uri.to_owned()))?;
+
+        let pos = params.text_document_position.position;
+
+        let line = doc
+            .text
+            .lines()
+            .nth(pos.line as usize)
+            .ok_or(LspError::Internal("Rope proccesing error".into()))?;
+
+        let slice = line
+            .get_slice(..pos.character as usize)
+            .ok_or(LspError::ConversionFailed(
+                "Rope to slice conversion failed".into(),
+            ))?;
+
+        let prefix = slice.as_str().ok_or(LspError::ConversionFailed(
+            "RopeSlice to str conversion failed".into(),
+        ))?;
 
         let trimmed_prefix = prefix.trim_end();
 
@@ -190,30 +199,27 @@ impl LanguageServer for Backend {
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let documents = self.document_map.read().await;
-        let Some(document) = documents.get(&params.text_document_position_params.text_document.uri)
-        else {
-            return Err(tower_lsp_server::jsonrpc::Error::internal_error());
-        };
+        let uri = &params.text_document_position_params.text_document.uri;
+
+        let doc = documents
+            .get(uri)
+            .ok_or(LspError::DocumentNotFound(uri.to_owned()))?;
 
         let token_pos = params.text_document_position_params.position;
+
         let token_span = position_to_span(token_pos)?;
-
-        let Ok(call) = find_related_call(&document.functions.functions(), token_span) else {
+        let Ok(Some(call)) = find_related_call(&doc.functions.functions(), token_span) else {
             return Ok(None);
         };
 
-        let Ok(call_span) = get_call_span(&call) else {
-            return Ok(None);
-        };
+        let call_span = get_call_span(&call)?;
         let (start, end) = span_to_positions(&call_span)?;
 
         let description = match call.name() {
             parse::CallName::Jet(jet) => {
-                let Ok(element) =
+                let element =
                     simplicityhl::simplicity::jet::Elements::from_str(format!("{jet}").as_str())
-                else {
-                    return Ok(None);
-                };
+                        .map_err(|err| LspError::ConversionFailed(err.to_string().into()))?;
 
                 let template = completion::jet::jet_to_template(element);
                 format!(
@@ -225,9 +231,12 @@ impl LanguageServer for Backend {
                 )
             }
             parse::CallName::Custom(func) => {
-                let Some((function, function_doc)) = document.functions.get(func.as_inner()) else {
-                    return Ok(None);
-                };
+                let (function, function_doc) =
+                    doc.functions
+                        .get(func.as_inner())
+                        .ok_or(LspError::FunctionNotFound(
+                            format!("Function {func} is not found").into(),
+                        ))?;
 
                 let template = completion::function_to_template(function, function_doc);
                 format!(
@@ -268,22 +277,25 @@ impl LanguageServer for Backend {
         let documents = self.document_map.read().await;
         let uri = &params.text_document_position_params.text_document.uri;
 
-        let Some(document) = documents.get(uri) else {
-            return Err(tower_lsp_server::jsonrpc::Error::internal_error());
-        };
+        let doc = documents
+            .get(uri)
+            .ok_or(LspError::DocumentNotFound(uri.to_owned()))?;
 
         let token_position = params.text_document_position_params.position;
         let token_span = position_to_span(token_position)?;
 
-        let Ok(call) = find_related_call(&document.functions.functions(), token_span) else {
+        let Ok(Some(call)) = find_related_call(&doc.functions.functions(), token_span) else {
             return Ok(None);
         };
 
         match call.name() {
             simplicityhl::parse::CallName::Custom(func) => {
-                let Some(function) = document.functions.get_func(func.as_inner()) else {
-                    return Ok(None);
-                };
+                let function =
+                    doc.functions
+                        .get_func(func.as_inner())
+                        .ok_or(LspError::FunctionNotFound(
+                            format!("Function {func} is not found").into(),
+                        ))?;
 
                 let (start, end) = span_to_positions(function.as_ref())?;
                 Ok(Some(GotoDefinitionResponse::from(Location::new(
