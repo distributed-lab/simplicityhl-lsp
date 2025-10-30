@@ -204,15 +204,16 @@ impl LanguageServer for Backend {
         let doc = documents
             .get(uri)
             .ok_or(LspError::DocumentNotFound(uri.to_owned()))?;
+        let functions = doc.functions.functions();
 
         let token_pos = params.text_document_position_params.position;
 
         let token_span = position_to_span(token_pos)?;
-        let Ok(Some(call)) = find_related_call(&doc.functions.functions(), token_span) else {
+        let Ok(Some(call)) = find_related_call(&functions, token_span) else {
             return Ok(None);
         };
 
-        let call_span = get_call_span(&call)?;
+        let call_span = get_call_span(call)?;
         let (start, end) = span_to_positions(&call_span)?;
 
         let description = match call.name() {
@@ -280,11 +281,12 @@ impl LanguageServer for Backend {
         let doc = documents
             .get(uri)
             .ok_or(LspError::DocumentNotFound(uri.to_owned()))?;
+        let functions = doc.functions.functions();
 
         let token_position = params.text_document_position_params.position;
         let token_span = position_to_span(token_position)?;
 
-        let Ok(Some(call)) = find_related_call(&doc.functions.functions(), token_span) else {
+        let Ok(Some(call)) = find_related_call(&functions, token_span) else {
             return Ok(None);
         };
 

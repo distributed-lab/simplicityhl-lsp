@@ -125,10 +125,10 @@ pub fn get_comments_from_lines(line: u32, rope: &Rope) -> String {
 }
 
 /// Find [`simplicityhl::parse::Call`] which contains given [`simplicityhl::error::Span`], which also have minimal Span.
-pub fn find_related_call(
-    functions: &[&parse::Function],
+pub fn find_related_call<'a>(
+    functions: &'a [&'a parse::Function],
     token_span: simplicityhl::error::Span,
-) -> Result<Option<simplicityhl::parse::Call>, LspError> {
+) -> Result<Option<&'a simplicityhl::parse::Call>, LspError> {
     let func = functions
         .iter()
         .find(|func| span_contains(func.span(), &token_span))
@@ -147,7 +147,7 @@ pub fn find_related_call(
             }
         })
         .filter(|(_, span)| span_contains(span, &token_span))
-        .map(|(call, _)| call.clone())
+        .map(|(call, _)| call)
         .last();
 
     Ok(call)
