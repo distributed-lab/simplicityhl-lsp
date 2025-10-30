@@ -1,29 +1,34 @@
-use std::borrow::Cow;
-use std::fmt::Display;
 use std::num::TryFromIntError;
-
+use thiserror::Error;
 use tower_lsp_server::jsonrpc::Error;
 use tower_lsp_server::lsp_types::Uri;
 
-type Message = Cow<'static, str>;
-
 /// Custom error type for LSP server.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Error)]
 pub enum LspError {
     /// An error during the conversion of different types.
-    ConversionFailed(Message),
+    #[error("Conversion failed: {0}")]
+    ConversionFailed(String),
+
+    /// An error during the conversion of integer types.
+    #[error("Conversion failed: {0}")]
+    IntegerConversionFailed(#[from] TryFromIntError),
 
     /// Failed to find function inside `functions` map.
-    FunctionNotFound(Message),
+    #[error("Function not found: {0}")]
+    FunctionNotFound(String),
 
     /// Failed to find call inside function.
-    CallNotFound(Message),
+    #[error("Call not found: {0}")]
+    CallNotFound(String),
 
     /// Failed to find given document inside `documents` map.
+    #[error("Document not found: {0:?}")]
     DocumentNotFound(Uri),
 
     /// A generic or unexpected internal error.
-    Internal(Message),
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
 impl LspError {
@@ -37,20 +42,8 @@ impl LspError {
             LspError::FunctionNotFound(_) => 2,
             LspError::CallNotFound(_) => 3,
             LspError::DocumentNotFound(_) => 4,
+            LspError::IntegerConversionFailed(_) => 5,
             LspError::Internal(_) => 100,
-        }
-    }
-
-    /// Return description of error.
-    pub fn description(&self) -> String {
-        match self {
-            LspError::DocumentNotFound(uri) => {
-                format!("Document not found: {}", uri.as_str())
-            }
-            LspError::ConversionFailed(cow)
-            | LspError::FunctionNotFound(cow)
-            | LspError::CallNotFound(cow)
-            | LspError::Internal(cow) => cow.to_string(),
         }
     }
 }
@@ -59,25 +52,11 @@ impl LspError {
 impl From<LspError> for Error {
     fn from(err: LspError) -> Self {
         let code = err.code();
-        let msg = err.description();
-
+        let msg = err.to_string();
         Error {
             code: code.into(),
             message: msg.into(),
             data: None,
         }
-    }
-}
-
-/// Convert [`std::num::TryFromIntError`] to [`LspError`].
-impl From<TryFromIntError> for LspError {
-    fn from(value: TryFromIntError) -> Self {
-        LspError::ConversionFailed(value.to_string().into())
-    }
-}
-
-impl Display for LspError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("{}: {}", self.code(), self.description()).as_str())
     }
 }

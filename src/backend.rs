@@ -220,7 +220,7 @@ impl LanguageServer for Backend {
             parse::CallName::Jet(jet) => {
                 let element =
                     simplicityhl::simplicity::jet::Elements::from_str(format!("{jet}").as_str())
-                        .map_err(|err| LspError::ConversionFailed(err.to_string().into()))?;
+                        .map_err(|err| LspError::ConversionFailed(err.to_string()))?;
 
                 let template = completion::jet::jet_to_template(element);
                 format!(
@@ -235,9 +235,9 @@ impl LanguageServer for Backend {
                 let (function, function_doc) =
                     doc.functions
                         .get(func.as_inner())
-                        .ok_or(LspError::FunctionNotFound(
-                            format!("Function {func} is not found").into(),
-                        ))?;
+                        .ok_or(LspError::FunctionNotFound(format!(
+                            "Function {func} is not found"
+                        )))?;
 
                 let template = completion::function_to_template(function, function_doc);
                 format!(
@@ -295,9 +295,9 @@ impl LanguageServer for Backend {
                 let function =
                     doc.functions
                         .get_func(func.as_inner())
-                        .ok_or(LspError::FunctionNotFound(
-                            format!("Function {func} is not found").into(),
-                        ))?;
+                        .ok_or(LspError::FunctionNotFound(format!(
+                            "Function {func} is not found"
+                        )))?;
 
                 let (start, end) = span_to_positions(function.as_ref())?;
                 Ok(Some(GotoDefinitionResponse::from(Location::new(
