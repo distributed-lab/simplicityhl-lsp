@@ -37,7 +37,10 @@ impl Functions {
     }
 
     /// Returns a vector of (function name, function) pairs.
-    pub fn functions_and_docs(&self) -> Vec<(&Function, &String)> {
-        self.map.values().map(|(func, doc)| (func, doc)).collect()
+    pub fn functions_and_docs(&self) -> Vec<(&Function, &str)> {
+        self.map
+            .values()
+            .map(|(func, doc)| (func, doc.as_str()))
+            .collect()
     }
 }

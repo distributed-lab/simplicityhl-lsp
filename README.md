@@ -6,19 +6,19 @@ Language Server for [SimplicityHL language](https://simplicity-lang.org/).
 
 - Basic diagnostic for SimplicityHL code
   
-![diagnostics](./images/diagnostics.gif)
+![diagnostics](assets/diagnostics.gif)
 
 - Completions of built-ins, jets and functions
 
-![completion](./images/completion.gif)
+![completion](assets/completion.gif)
 
 - Hover for built-ins, jets and functions, with support of documentation
 
-![hover](./images/hover.gif)
+![hover](assets/hover.gif)
 
 - Go to definition for functions
 
-![goto-definition](./images/goto-definition.gif)
+![goto-definition](assets/goto-definition.gif)
 
 ## Installation
 

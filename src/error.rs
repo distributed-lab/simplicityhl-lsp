@@ -1,5 +1,7 @@
 use std::num::TryFromIntError;
+
 use thiserror::Error;
+
 use tower_lsp_server::jsonrpc::Error;
 use tower_lsp_server::lsp_types::Uri;
 
@@ -34,9 +36,9 @@ pub enum LspError {
 impl LspError {
     /// Return error code for error.
     ///
-    /// Error code is needed for [`tower_lsp_server::jsonrpc::Error`] to differintiate errors. It's
-    /// recommended to use values from 1 to 5000
-    pub fn code(&self) -> i64 {
+    /// Error code is needed for [`tower_lsp_server::jsonrpc::Error`] to differentiate errors. It's
+    /// recommended to use values from 1 to 5000.
+    pub const fn code(&self) -> i64 {
         match self {
             LspError::ConversionFailed(_) => 1,
             LspError::FunctionNotFound(_) => 2,
@@ -51,11 +53,9 @@ impl LspError {
 /// Convert [`LspError`] to [`tower_lsp_server::jsonrpc::Error`].
 impl From<LspError> for Error {
     fn from(err: LspError) -> Self {
-        let code = err.code();
-        let msg = err.to_string();
         Error {
-            code: code.into(),
-            message: msg.into(),
+            code: err.code().into(),
+            message: err.to_string().into(),
             data: None,
         }
     }
