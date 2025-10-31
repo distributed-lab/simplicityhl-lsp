@@ -1,5 +1,9 @@
+#![warn(clippy::all, clippy::pedantic)]
+
 mod backend;
 mod completion;
+mod error;
+mod function;
 mod utils;
 
 use backend::Backend;

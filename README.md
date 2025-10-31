@@ -5,7 +5,20 @@ Language Server for [SimplicityHL language](https://simplicity-lang.org/).
 ## Features
 
 - Basic diagnostic for SimplicityHL code
-- Completions of functions and jets
+  
+![diagnostics](assets/diagnostics.gif)
+
+- Completions of built-ins, jets and functions
+
+![completion](assets/completion.gif)
+
+- Hover for built-ins, jets and functions, with support of documentation
+
+![hover](assets/hover.gif)
+
+- Go to definition for functions
+
+![goto-definition](assets/goto-definition.gif)
 
 ## Installation
 

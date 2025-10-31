@@ -11,6 +11,7 @@ tower-lsp-server = "0.22.1"
 
 log = "0.4.28"
 env_logger = "0.11.8"
+thiserror = "2.0.17"
 
 ropey = "1.6.1"
 miniscript = "12"
