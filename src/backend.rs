@@ -13,10 +13,11 @@ use tower_lsp_server::lsp_types::{
     DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse,
     Hover, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
-    InitializedParams, Location, MarkupContent, MarkupKind, MessageType, OneOf, Range, SaveOptions,
-    SemanticTokensParams, SemanticTokensResult, ServerCapabilities, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncSaveOptions, Uri,
-    WorkDoneProgressOptions, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+    InitializedParams, Location, MarkupContent, MarkupKind, MessageType, OneOf, Position, Range,
+    ReferenceParams, SaveOptions, SemanticTokensParams, SemanticTokensResult, ServerCapabilities,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    TextDocumentSyncSaveOptions, Uri, WorkDoneProgressOptions, WorkspaceFoldersServerCapabilities,
+    WorkspaceServerCapabilities,
 };
 use tower_lsp_server::{Client, LanguageServer};
 
@@ -31,7 +32,8 @@ use crate::completion::{self, CompletionProvider};
 use crate::error::LspError;
 use crate::function::Functions;
 use crate::utils::{
-    find_related_call, get_call_span, get_comments_from_lines, position_to_span, span_to_positions,
+    find_all_references, find_related_call, get_call_span, get_comments_from_lines,
+    position_to_span, span_contains, span_to_positions,
 };
 
 #[derive(Debug)]
@@ -86,6 +88,7 @@ impl LanguageServer for Backend {
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
                 ..ServerCapabilities::default()
             },
         })
@@ -306,6 +309,67 @@ impl LanguageServer for Backend {
                 ))))
             }
             _ => Ok(None),
+        }
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let documents = self.document_map.read().await;
+        let uri = &params.text_document_position.text_document.uri;
+
+        let doc = documents
+            .get(uri)
+            .ok_or(LspError::DocumentNotFound(uri.to_owned()))?;
+        let functions = doc.functions.functions();
+
+        let token_position = params.text_document_position.position;
+
+        let token_span = position_to_span(token_position)?;
+
+        let line = doc
+            .text
+            .lines()
+            .nth(token_position.line as usize)
+            .ok_or(LspError::Internal("Rope proccesing error".into()))?;
+
+        let line_str = line.as_str().ok_or(LspError::ConversionFailed(
+            "RopeSlice to str conversion failed".into(),
+        ))?;
+
+        let func = functions
+            .iter()
+            .find(|func| span_contains(func.span(), &token_span))
+            .ok_or(LspError::CallNotFound(
+                "Span of the call is not inside function.".into(),
+            ))?;
+
+        let Some(pos) = line_str.find(func.name().as_inner()) else {
+            return Ok(None);
+        };
+
+        let (start, end) = (
+            Position {
+                line: token_position.line,
+                character: u32::try_from(pos).map_err(LspError::from)?,
+            },
+            Position {
+                line: token_position.line,
+                character: u32::try_from(pos + func.name().as_inner().len())
+                    .map_err(LspError::from)?,
+            },
+        );
+
+        if token_position <= end && token_position >= start {
+            Ok(Some(
+                find_all_references(&functions, func.name())?
+                    .iter()
+                    .map(|range| Location {
+                        range: *range,
+                        uri: uri.clone(),
+                    })
+                    .collect(),
+            ))
+        } else {
+            Ok(None)
         }
     }
 }

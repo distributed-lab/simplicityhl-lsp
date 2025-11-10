@@ -4,7 +4,10 @@ use miniscript::iter::TreeLike;
 
 use crate::error::LspError;
 use ropey::Rope;
-use simplicityhl::parse;
+use simplicityhl::{
+    parse::{self, CallName},
+    str::FunctionName,
+};
 use tower_lsp_server::lsp_types;
 
 fn position_le(a: &simplicityhl::error::Position, b: &simplicityhl::error::Position) -> bool {
@@ -167,6 +170,37 @@ pub fn get_call_span(
             col: NonZeroUsize::try_from(end_column)?,
         },
     })
+}
+
+pub fn find_all_references<'a>(
+    functions: &'a [&'a parse::Function],
+    func_name: &FunctionName,
+) -> Result<Vec<lsp_types::Range>, LspError> {
+    functions
+        .iter()
+        .flat_map(|func| {
+            parse::ExprTree::Expression(func.body())
+                .pre_order_iter()
+                .filter_map(|expr| {
+                    if let parse::ExprTree::Call(call) = expr {
+                        get_call_span(call).ok().map(|span| (call, span))
+                    } else {
+                        None
+                    }
+                })
+                .filter(|(call, _)| match call.name() {
+                    CallName::Custom(name) => name == func_name,
+                    _ => false,
+                })
+                .map(|(_, span)| span)
+                .collect::<Vec<_>>()
+        })
+        .map(|span| {
+            let (start, mut end) = span_to_positions(&span)?;
+            end.character = start.character + u32::try_from(func_name.as_inner().len())?;
+            Ok(lsp_types::Range { start, end })
+        })
+        .collect::<Result<Vec<_>, LspError>>() // collects results, propagating first Err
 }
 
 #[cfg(test)]
