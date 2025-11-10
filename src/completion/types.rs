@@ -3,8 +3,6 @@
 pub struct FunctionTemplate {
     /// Display name shown in completion list
     pub display_name: String,
-    /// Base name for snippet
-    pub snippet_base: String,
     /// Generic type parameters to include and use with snippet base
     pub generics: Vec<String>,
     /// Function arguments
@@ -13,25 +11,28 @@ pub struct FunctionTemplate {
     pub return_type: String,
     /// Documentation
     pub description: String,
+    /// Snippet to use when completion is triggered
+    pub snippet: String,
 }
 
 impl FunctionTemplate {
-    /// Create a template with generics (currently used only for builtin functions)
+    /// Create a template with generics (used only for built-ins)
     pub fn new(
         display_name: impl Into<String>,
-        snippet_base: impl Into<String>,
         generics: Vec<String>,
         args: Vec<String>,
         return_type: impl Into<String>,
         description: impl Into<String>,
     ) -> Self {
+        let name = display_name.into();
+        let snippet = Self::get_snippet_name(&name, &generics);
         Self {
-            display_name: display_name.into(),
-            snippet_base: snippet_base.into(),
+            display_name: name,
             generics,
             args,
             return_type: return_type.into(),
             description: description.into(),
+            snippet,
         }
     }
 
@@ -43,32 +44,32 @@ impl FunctionTemplate {
         description: impl Into<String>,
     ) -> Self {
         let name = name.into();
-        Self::new(name.clone(), name, vec![], args, return_type, description)
+        Self::new(name.clone(), vec![], args, return_type, description)
     }
 
     /// Get snippet for function
-    pub fn get_snippet_name(&self) -> String {
-        format!(
-            "{}::<{}>",
-            self.snippet_base,
-            self.generics
-                .iter()
-                .enumerate()
-                .map(|(index, item)| { format!("${{{}:{}}}", index + 1, item) })
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
+    pub fn get_snippet_name(name: &str, generics: &[String]) -> String {
+        if generics.is_empty() {
+            name.to_string()
+        } else {
+            format!(
+                "{}::<{}>",
+                name,
+                generics
+                    .iter()
+                    .enumerate()
+                    .map(|(index, item)| { format!("${{{}:{}}}", index + 1, item) })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
     }
 
     /// Get text, which would inserted when completion triggered
     pub fn get_insert_text(&self) -> String {
         format!(
             "{}({})",
-            if self.generics.is_empty() {
-                self.snippet_base.clone()
-            } else {
-                self.get_snippet_name()
-            },
+            self.snippet,
             self.args
                 .iter()
                 .enumerate()
