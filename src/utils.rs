@@ -196,11 +196,10 @@ pub fn find_all_references<'a>(
                 .collect::<Vec<_>>()
         })
         .map(|span| {
-            let (start, mut end) = span_to_positions(&span)?;
-            end.character = start.character + u32::try_from(func_name.as_inner().len())?;
+            let (start, end) = span_to_positions(&span)?;
             Ok(lsp_types::Range { start, end })
         })
-        .collect::<Result<Vec<_>, LspError>>() // collects results, propagating first Err
+        .collect::<Result<Vec<_>, LspError>>()
 }
 
 #[cfg(test)]
