@@ -224,7 +224,7 @@ impl LanguageServer for Backend {
 
                 let template = completion::jet::jet_to_template(element);
                 format!(
-                    "```simplicityhl\nfn jet::{}({}) -> {}\n```\n{}",
+                    "Jet function\n```simplicityhl\nfn {}({}) -> {}\n```\n---\n\n{}",
                     template.display_name,
                     template.args.join(", "),
                     template.return_type,
@@ -241,7 +241,7 @@ impl LanguageServer for Backend {
 
                 let template = completion::function_to_template(function, function_doc);
                 format!(
-                    "```simplicityhl\nfn {}({}) -> {}\n```\n{}",
+                    "```simplicityhl\nfn {}({}) -> {}\n```\n---\n{}",
                     template.display_name,
                     template.args.join(", "),
                     template.return_type,
@@ -253,7 +253,7 @@ impl LanguageServer for Backend {
                     return Ok(None);
                 };
                 format!(
-                    "```simplicityhl\nfn {}({}) -> {}\n```\n{}",
+                    "Built-in function\n```simplicityhl\nfn {}({}) -> {}\n```\n---\n{}",
                     template.display_name,
                     template.args.join(", "),
                     template.return_type,
