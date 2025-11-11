@@ -331,18 +331,16 @@ impl LanguageServer for Backend {
             .nth(token_position.line as usize)
             .ok_or(LspError::Internal("Rope proccesing error".into()))?;
 
-        let line_str = line.as_str().ok_or(LspError::ConversionFailed(
-            "RopeSlice to str conversion failed".into(),
-        ))?;
+        let line = line.to_string();
 
-        let func = functions
+        let Some(func) = functions
             .iter()
             .find(|func| span_contains(func.span(), &token_span))
-            .ok_or(LspError::CallNotFound(
-                "Span of the call is not inside function.".into(),
-            ))?;
+        else {
+            return Ok(None);
+        };
 
-        let Some(pos) = line_str.find(func.name().as_inner()) else {
+        let Some(pos) = line.find(func.name().as_inner()) else {
             return Ok(None);
         };
 
