@@ -325,13 +325,24 @@ impl LanguageServer for Backend {
 
         let token_span = position_to_span(token_position)?;
 
+        if let Ok(Some(call)) = find_related_call(&functions, token_span) {
+            return Ok(Some(
+                find_all_references(&functions, call.name())?
+                    .iter()
+                    .map(|range| Location {
+                        range: *range,
+                        uri: uri.clone(),
+                    })
+                    .collect(),
+            ));
+        }
+
         let line = doc
             .text
             .lines()
             .nth(token_position.line as usize)
-            .ok_or(LspError::Internal("Rope proccesing error".into()))?;
-
-        let line = line.to_string();
+            .ok_or(LspError::Internal("Rope processing error".into()))?
+            .to_string();
 
         let Some(func) = functions
             .iter()
@@ -358,7 +369,7 @@ impl LanguageServer for Backend {
 
         if token_position <= end && token_position >= start {
             Ok(Some(
-                find_all_references(&functions, func.name())?
+                find_all_references(&functions, &parse::CallName::Custom(func.name().clone()))?
                     .iter()
                     .map(|range| Location {
                         range: *range,

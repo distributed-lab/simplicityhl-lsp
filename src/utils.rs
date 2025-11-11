@@ -174,7 +174,7 @@ pub fn get_call_span(
 
 pub fn find_all_references<'a>(
     functions: &'a [&'a parse::Function],
-    func_name: &FunctionName,
+    call_name: &CallName,
 ) -> Result<Vec<lsp_types::Range>, LspError> {
     functions
         .iter()
@@ -188,10 +188,7 @@ pub fn find_all_references<'a>(
                         None
                     }
                 })
-                .filter(|(call, _)| match call.name() {
-                    CallName::Custom(name) => name == func_name,
-                    _ => false,
-                })
+                .filter(|(call, _)| call.name() == call_name)
                 .map(|(_, span)| span)
                 .collect::<Vec<_>>()
         })
