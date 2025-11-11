@@ -22,12 +22,10 @@ Language Server for [SimplicityHL language](https://simplicity-lang.org/).
 
 ## Installation
 
-Clone this repository and install using Cargo:
+Install Language Server using `cargo`:
 
 ```bash
-https://github.com/distributed-lab/simplicityhl-lsp
-cd simplicityhl-lsp
-cargo install --path .
+cargo install simplicityhl-lsp
 ```
 
 ## Integration with editors
