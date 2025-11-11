@@ -4,10 +4,7 @@ use miniscript::iter::TreeLike;
 
 use crate::error::LspError;
 use ropey::Rope;
-use simplicityhl::{
-    parse::{self, CallName},
-    str::FunctionName,
-};
+use simplicityhl::parse::{self, CallName};
 use tower_lsp_server::lsp_types;
 
 fn position_le(a: &simplicityhl::error::Position, b: &simplicityhl::error::Position) -> bool {
