@@ -13,7 +13,7 @@ use tower_lsp_server::lsp_types::{
     DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse,
     Hover, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
-    InitializedParams, Location, MarkupContent, MarkupKind, MessageType, OneOf, Position, Range,
+    InitializedParams, Location, MarkupContent, MarkupKind, MessageType, OneOf, Range,
     ReferenceParams, SaveOptions, SemanticTokensParams, SemanticTokensResult, ServerCapabilities,
     TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
     TextDocumentSyncSaveOptions, Uri, WorkDoneProgressOptions, WorkspaceFoldersServerCapabilities,
@@ -32,8 +32,8 @@ use crate::completion::{self, CompletionProvider};
 use crate::error::LspError;
 use crate::function::Functions;
 use crate::utils::{
-    find_all_references, find_related_call, get_call_span, get_comments_from_lines,
-    position_to_span, span_contains, span_to_positions,
+    find_all_references, find_function_name_range, find_related_call, get_call_span,
+    get_comments_from_lines, position_to_span, span_contains, span_to_positions,
 };
 
 #[derive(Debug)]
@@ -290,6 +290,20 @@ impl LanguageServer for Backend {
         let token_span = position_to_span(token_position)?;
 
         let Ok(Some(call)) = find_related_call(&functions, token_span) else {
+            let Some(func) = functions
+                .iter()
+                .find(|func| span_contains(func.span(), &token_span))
+            else {
+                return Ok(None);
+            };
+            let range = find_function_name_range(func, &doc.text)?;
+
+            if token_position <= range.end && token_position >= range.start {
+                return Ok(Some(GotoDefinitionResponse::from(Location::new(
+                    uri.clone(),
+                    range,
+                ))));
+            }
             return Ok(None);
         };
 
@@ -325,54 +339,40 @@ impl LanguageServer for Backend {
 
         let token_span = position_to_span(token_position)?;
 
-        if let Ok(Some(call)) = find_related_call(&functions, token_span) {
-            return Ok(Some(
-                find_all_references(&functions, call.name())?
-                    .iter()
-                    .map(|range| Location {
-                        range: *range,
-                        uri: uri.clone(),
-                    })
-                    .collect(),
-            ));
+        let call_name =
+            find_related_call(&functions, token_span)?.map(simplicityhl::parse::Call::name);
+
+        match call_name {
+            Some(parse::CallName::Custom(_)) | None => {}
+            Some(name) => {
+                return Ok(Some(
+                    find_all_references(&functions, name)?
+                        .iter()
+                        .map(|range| Location {
+                            range: *range,
+                            uri: uri.clone(),
+                        })
+                        .collect(),
+                ));
+            }
         }
 
-        let line = doc
-            .text
-            .lines()
-            .nth(token_position.line as usize)
-            .ok_or(LspError::Internal("Rope processing error".into()))?
-            .to_string();
-
-        let Some(func) = functions
-            .iter()
-            .find(|func| span_contains(func.span(), &token_span))
-        else {
+        let Some(func) = functions.iter().find(|func| match call_name {
+            Some(parse::CallName::Custom(name)) => func.name() == name,
+            _ => span_contains(func.span(), &token_span),
+        }) else {
             return Ok(None);
         };
 
-        let Some(pos) = line.find(func.name().as_inner()) else {
-            return Ok(None);
-        };
+        let range = find_function_name_range(func, &doc.text)?;
 
-        let (start, end) = (
-            Position {
-                line: token_position.line,
-                character: u32::try_from(pos).map_err(LspError::from)?,
-            },
-            Position {
-                line: token_position.line,
-                character: u32::try_from(pos + func.name().as_inner().len())
-                    .map_err(LspError::from)?,
-            },
-        );
-
-        if token_position <= end && token_position >= start {
+        if (token_position <= range.end && token_position >= range.start) || call_name.is_some() {
             Ok(Some(
                 find_all_references(&functions, &parse::CallName::Custom(func.name().clone()))?
-                    .iter()
+                    .into_iter()
+                    .chain(std::iter::once(range))
                     .map(|range| Location {
-                        range: *range,
+                        range,
                         uri: uri.clone(),
                     })
                     .collect(),
