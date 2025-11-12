@@ -22,4 +22,3 @@ pub fn get_integer_type_casts() -> HashMap<&'static str, &'static str> {
         ("(u128, u128)", "u256"),
     ])
 }
-
