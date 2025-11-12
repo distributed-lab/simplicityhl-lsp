@@ -12,6 +12,7 @@ use crate::completion::types::FunctionTemplate;
 /// Get completion of builtin functions. They are all defined in [`simplicityhl::parse::CallName`]
 pub fn get_builtin_functions() -> Vec<FunctionTemplate> {
     let ty = AliasedType::from(AliasName::from_str_unchecked("T"));
+    let function_name = FunctionName::from_str_unchecked("fn");
     let Some(some) = NonZero::new(1) else {
         return vec![];
     };
@@ -24,12 +25,10 @@ pub fn get_builtin_functions() -> Vec<FunctionTemplate> {
         CallName::Assert,
         CallName::Debug,
         CallName::Panic,
-        CallName::Fold(
-            FunctionName::from_str_unchecked("name"),
-            NonZeroPow2Usize::TWO,
-        ),
-        CallName::ArrayFold(FunctionName::from_str_unchecked("name"), some),
-        CallName::ForWhile(FunctionName::from_str_unchecked("name")),
+        CallName::Fold(function_name.clone(), NonZeroPow2Usize::TWO),
+        CallName::ArrayFold(function_name.clone(), some),
+        CallName::ForWhile(function_name.clone()),
+        CallName::TypeCast(ty.clone()),
     ];
 
     functions.iter().filter_map(match_callname).collect()
@@ -43,7 +42,6 @@ pub fn match_callname(call: &CallName) -> Option<FunctionTemplate> {
             let ty = aliased_type.to_string();
             Some(FunctionTemplate::new(
                 "unwrap_left",
-                "unwrap_left",
                 vec![format!("{ty}")],
                 vec![format!("Either<{ty}, U>")],
                 ty,
@@ -53,7 +51,6 @@ pub fn match_callname(call: &CallName) -> Option<FunctionTemplate> {
         CallName::UnwrapRight(aliased_type) => {
             let ty = aliased_type.to_string();
             Some(FunctionTemplate::new(
-                "unwrap_right",
                 "unwrap_right",
                 vec![format!("{ty}")],
                 vec![format!("Either<T, {ty}>")],
@@ -71,7 +68,6 @@ pub fn match_callname(call: &CallName) -> Option<FunctionTemplate> {
             let ty = aliased_type.to_string();
             Some(FunctionTemplate::new(
                 "is_none".to_string(),
-                "is_none",
                 vec![format!("{ty}")],
                 vec![format!("Option<{ty}>")],
                 "bool",
@@ -93,7 +89,6 @@ pub fn match_callname(call: &CallName) -> Option<FunctionTemplate> {
         )),
         CallName::Fold(_, _) => Some(FunctionTemplate::new(
             "fold",
-            "fold",
             vec!["f".to_string(), "N".to_string()],
             vec![
                 "list: List<E,N>".to_string(),
@@ -103,7 +98,6 @@ pub fn match_callname(call: &CallName) -> Option<FunctionTemplate> {
             doc,
         )),
         CallName::ArrayFold(_, _) => Some(FunctionTemplate::new(
-            "array_fold",
             "array_fold",
             vec!["f".to_string(), "N".to_string()],
             vec![
@@ -115,17 +109,27 @@ pub fn match_callname(call: &CallName) -> Option<FunctionTemplate> {
         )),
         CallName::ForWhile(_) => Some(FunctionTemplate::new(
             "for_while",
-            "for_while",
             vec!["f".to_string()],
             vec!["accumulator: A".to_string(), "context: C".to_string()],
             "Either<B, A>",
             doc,
         )),
-        // TODO: implement TypeCast definition
-        CallName::Jet(_) | CallName::TypeCast(_) | CallName::Custom(_) => None,
+
+        // The `into` function has a different structure compared to the other built-ins,
+        // so we defined a different snippet for it.
+        CallName::TypeCast(_) => Some(FunctionTemplate {
+            display_name: "into".into(),
+            generics: vec!["Input".to_string()],
+            args: vec!["input".to_string()],
+            return_type: "Output".into(),
+            description: doc,
+            snippet: "<${1:Input}>::into".into(),
+        }),
+        CallName::Jet(_) | CallName::Custom(_) => None,
     }
 }
 
+/// Return documentation for builtin function.
 fn builtin_documentation(call: &CallName) -> String {
     String::from(match call {
         CallName::UnwrapLeft(_) =>
@@ -212,6 +216,68 @@ fn main() {
     assert!(jet::eq_8(10, unwrap_left::<()>(out)));
 }
 ```",
-        CallName::Jet(_) | CallName::TypeCast(_) | CallName::Custom(_) => "",
+        CallName::TypeCast(_) => type_casting_documentation(),
+        CallName::Jet(_) | CallName::Custom(_) => "",
     })
+}
+
+/// Return documentation for `into` casting.
+fn type_casting_documentation() -> &'static str {
+    "A SimplicityHL type can be cast into another SimplicityHL type if both types share the same structure.
+
+## Casting Rules
+
+- Type `A` can be cast into itself (reflexivity).
+
+- If type `A` can be cast into type `B`, then type `B` can be cast into type `A` (symmetry).
+
+- If type `A` can be cast into type `B` and type `B` can be cast into type `C`, then type `A` can be cast into type `C` (transitivity).
+
+Below is a table of types that can be cast into each other.
+
+| Type           | Casts To (And Back)                |
+|----------------|------------------------------------|
+| `bool`         | `Either<(), ()>`                   |
+| `Option<A>`    | `Either<(), A>`                    |
+| `u1`           | `bool`                             |
+| `u2`           | `(u1, u1)`                         |
+| `u4`           | `(u2, u2)`                         |
+| `u8`           | `(u4, u4)`                         |
+| `u16`          | `(u8, u8)`                         |
+| `u32`          | `(u16, u16)`                       |
+| `u64`          | `(u32, u32)`                       |
+| `u128`         | `(u64, u64)`                       |
+| `u256`         | `(u128, u128)`                     |
+| `(A)`          | `A`                                |
+| `(A, B, C)`    | `(A, (B, C))`                      |
+| `(A, B, C, D)` | `((A, B), (C, D))`                 |
+| ...            | ...                                |
+| `[A; 0]`       | `()`                               |
+| `[A; 1]`       | `A`                                |
+| `[A; 2]`       | `(A, A)`                           |
+| `[A; 3]`       | `(A, (A, A))`                      |
+| `[A; 4]`       | `((A, A), (A, A))`                 |
+| ...            | ...                                |
+| `List<A, 2>`   | `Option<A>`                        |
+| `List<A, 4>`   | `(Option<[A; 2]>, List<A, 2>)`     |
+| `List<A, 8>`   | `(Option<[A; 4]>, List<A, 4>)`     |
+| `List<A, 16>`  | `(Option<[A; 8]>, List<A, 8>)`     |
+| `List<A, 32>`  | `(Option<[A; 16]>, List<A, 16>)`   |
+| `List<A, 64>`  | `(Option<[A; 32]>, List<A, 32>)`   |
+| `List<A, 128>` | `(Option<[A; 64]>, List<A, 64>)`   |
+| `List<A, 256>` | `(Option<[A; 128]>, List<A, 128>)` |
+| `List<A, 512>` | `(Option<[A; 256]>, List<A, 256>)` |
+| ...            | ...                                |
+
+## Casting Expression
+
+All casting in SimplicityHL happens explicitly through a casting expression.
+
+```simplicityhl
+<Input>::into(input)
+```
+
+The above expression casts the value `input` of type `Input` into some output type.
+The input type of the cast is explicit while the output type is implicit.
+"
 }

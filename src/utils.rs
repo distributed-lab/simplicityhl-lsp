@@ -4,7 +4,7 @@ use miniscript::iter::TreeLike;
 
 use crate::error::LspError;
 use ropey::Rope;
-use simplicityhl::parse;
+use simplicityhl::parse::{self, CallName};
 use tower_lsp_server::lsp_types;
 
 fn position_le(a: &simplicityhl::error::Position, b: &simplicityhl::error::Position) -> bool {
@@ -153,6 +153,44 @@ pub fn find_related_call<'a>(
     Ok(call)
 }
 
+pub fn find_function_name_range(
+    function: &parse::Function,
+    text: &Rope,
+) -> Result<lsp_types::Range, LspError> {
+    let start_line = usize::from(function.span().start.line) - 1;
+    let Some((line, character)) =
+        text.lines()
+            .enumerate()
+            .skip(start_line)
+            .find_map(|(i, line)| {
+                line.to_string()
+                    .find(function.name().as_inner())
+                    .map(|col| (i, col))
+            })
+    else {
+        return Err(LspError::FunctionNotFound(format!(
+            "Function with name {} not found",
+            function.name()
+        )));
+    };
+
+    let func_size = u32::try_from(function.name().as_inner().len()).map_err(LspError::from)?;
+
+    let (line, character) = (
+        u32::try_from(line).map_err(LspError::from)?,
+        u32::try_from(character).map_err(LspError::from)?,
+    );
+
+    let (start, end) = (
+        lsp_types::Position { line, character },
+        lsp_types::Position {
+            line,
+            character: character + func_size,
+        },
+    );
+    Ok(lsp_types::Range { start, end })
+}
+
 pub fn get_call_span(
     call: &simplicityhl::parse::Call,
 ) -> Result<simplicityhl::error::Span, LspError> {
@@ -167,6 +205,33 @@ pub fn get_call_span(
             col: NonZeroUsize::try_from(end_column)?,
         },
     })
+}
+
+pub fn find_all_references<'a>(
+    functions: &'a [&'a parse::Function],
+    call_name: &CallName,
+) -> Result<Vec<lsp_types::Range>, LspError> {
+    functions
+        .iter()
+        .flat_map(|func| {
+            parse::ExprTree::Expression(func.body())
+                .pre_order_iter()
+                .filter_map(|expr| {
+                    if let parse::ExprTree::Call(call) = expr {
+                        get_call_span(call).ok().map(|span| (call, span))
+                    } else {
+                        None
+                    }
+                })
+                .filter(|(call, _)| call.name() == call_name)
+                .map(|(_, span)| span)
+                .collect::<Vec<_>>()
+        })
+        .map(|span| {
+            let (start, end) = span_to_positions(&span)?;
+            Ok(lsp_types::Range { start, end })
+        })
+        .collect::<Result<Vec<_>, LspError>>()
 }
 
 #[cfg(test)]

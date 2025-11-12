@@ -13,10 +13,11 @@ use tower_lsp_server::lsp_types::{
     DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, ExecuteCommandParams, GotoDefinitionParams, GotoDefinitionResponse,
     Hover, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
-    InitializedParams, Location, MarkupContent, MarkupKind, MessageType, OneOf, Range, SaveOptions,
-    SemanticTokensParams, SemanticTokensResult, ServerCapabilities, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncSaveOptions, Uri,
-    WorkDoneProgressOptions, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+    InitializedParams, Location, MarkupContent, MarkupKind, MessageType, OneOf, Range,
+    ReferenceParams, SaveOptions, SemanticTokensParams, SemanticTokensResult, ServerCapabilities,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    TextDocumentSyncSaveOptions, Uri, WorkDoneProgressOptions, WorkspaceFoldersServerCapabilities,
+    WorkspaceServerCapabilities,
 };
 use tower_lsp_server::{Client, LanguageServer};
 
@@ -31,7 +32,8 @@ use crate::completion::{self, CompletionProvider};
 use crate::error::LspError;
 use crate::function::Functions;
 use crate::utils::{
-    find_related_call, get_call_span, get_comments_from_lines, position_to_span, span_to_positions,
+    find_all_references, find_function_name_range, find_related_call, get_call_span,
+    get_comments_from_lines, position_to_span, span_contains, span_to_positions,
 };
 
 #[derive(Debug)]
@@ -86,6 +88,7 @@ impl LanguageServer for Backend {
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
                 ..ServerCapabilities::default()
             },
         })
@@ -224,7 +227,7 @@ impl LanguageServer for Backend {
 
                 let template = completion::jet::jet_to_template(element);
                 format!(
-                    "```simplicityhl\nfn jet::{}({}) -> {}\n```\n{}",
+                    "Jet function\n```simplicityhl\nfn {}({}) -> {}\n```\n---\n\n{}",
                     template.display_name,
                     template.args.join(", "),
                     template.return_type,
@@ -241,7 +244,7 @@ impl LanguageServer for Backend {
 
                 let template = completion::function_to_template(function, function_doc);
                 format!(
-                    "```simplicityhl\nfn {}({}) -> {}\n```\n{}",
+                    "```simplicityhl\nfn {}({}) -> {}\n```\n---\n{}",
                     template.display_name,
                     template.args.join(", "),
                     template.return_type,
@@ -253,7 +256,7 @@ impl LanguageServer for Backend {
                     return Ok(None);
                 };
                 format!(
-                    "```simplicityhl\nfn {}({}) -> {}\n```\n{}",
+                    "Built-in function\n```simplicityhl\nfn {}({}) -> {}\n```\n---\n{}",
                     template.display_name,
                     template.args.join(", "),
                     template.return_type,
@@ -287,6 +290,20 @@ impl LanguageServer for Backend {
         let token_span = position_to_span(token_position)?;
 
         let Ok(Some(call)) = find_related_call(&functions, token_span) else {
+            let Some(func) = functions
+                .iter()
+                .find(|func| span_contains(func.span(), &token_span))
+            else {
+                return Ok(None);
+            };
+            let range = find_function_name_range(func, &doc.text)?;
+
+            if token_position <= range.end && token_position >= range.start {
+                return Ok(Some(GotoDefinitionResponse::from(Location::new(
+                    uri.clone(),
+                    range,
+                ))));
+            }
             return Ok(None);
         };
 
@@ -306,6 +323,62 @@ impl LanguageServer for Backend {
                 ))))
             }
             _ => Ok(None),
+        }
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let documents = self.document_map.read().await;
+        let uri = &params.text_document_position.text_document.uri;
+
+        let doc = documents
+            .get(uri)
+            .ok_or(LspError::DocumentNotFound(uri.to_owned()))?;
+        let functions = doc.functions.functions();
+
+        let token_position = params.text_document_position.position;
+
+        let token_span = position_to_span(token_position)?;
+
+        let call_name =
+            find_related_call(&functions, token_span)?.map(simplicityhl::parse::Call::name);
+
+        match call_name {
+            Some(parse::CallName::Custom(_)) | None => {}
+            Some(name) => {
+                return Ok(Some(
+                    find_all_references(&functions, name)?
+                        .iter()
+                        .map(|range| Location {
+                            range: *range,
+                            uri: uri.clone(),
+                        })
+                        .collect(),
+                ));
+            }
+        }
+
+        let Some(func) = functions.iter().find(|func| match call_name {
+            Some(parse::CallName::Custom(name)) => func.name() == name,
+            _ => span_contains(func.span(), &token_span),
+        }) else {
+            return Ok(None);
+        };
+
+        let range = find_function_name_range(func, &doc.text)?;
+
+        if (token_position <= range.end && token_position >= range.start) || call_name.is_some() {
+            Ok(Some(
+                find_all_references(&functions, &parse::CallName::Custom(func.name().clone()))?
+                    .into_iter()
+                    .chain(std::iter::once(range))
+                    .map(|range| Location {
+                        range,
+                        uri: uri.clone(),
+                    })
+                    .collect(),
+            ))
+        } else {
+            Ok(None)
         }
     }
 }
