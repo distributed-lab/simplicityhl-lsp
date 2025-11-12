@@ -73,6 +73,30 @@ impl CompletionProvider {
             })
             .collect()
     }
+
+    pub fn process_completions(
+        &self,
+        prefix: &str,
+        functions: &[(&Function, &str)],
+    ) -> Option<Vec<CompletionItem>> {
+        if let Some(last) = prefix
+            .rsplit(|c: char| !c.is_alphanumeric() && c != ':')
+            .next()
+        {
+            if last == "jet::" || last.starts_with("jet::") {
+                return Some(self.jets().to_vec());
+            }
+        }
+        if prefix.ends_with(':') {
+            return None;
+        }
+
+        let mut completions = CompletionProvider::get_function_completions(functions);
+        completions.extend_from_slice(self.builtins());
+        completions.extend_from_slice(self.modules());
+
+        Some(completions)
+    }
 }
 
 /// Convert [`simplicityhl::parse::Function`] to [`types::FunctionTemplate`].
