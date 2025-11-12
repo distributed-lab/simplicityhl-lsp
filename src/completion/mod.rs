@@ -2,6 +2,7 @@ use simplicityhl::parse::Function;
 
 pub mod builtin;
 pub mod jet;
+pub mod type_cast;
 pub mod types;
 
 use tower_lsp_server::lsp_types::{
@@ -19,6 +20,9 @@ pub struct CompletionProvider {
 
     /// Modules completions.
     modules: Vec<CompletionItem>,
+
+    /// Default Type cast completions.
+    type_casts: Vec<CompletionItem>,
 }
 
 impl CompletionProvider {
@@ -41,26 +45,26 @@ impl CompletionProvider {
         .iter()
         .map(|(module, detail)| module_to_completion((*module).to_string(), (*detail).to_string()))
         .collect();
+
+        let type_casts_completion = type_cast::get_integer_type_casts()
+            .iter()
+            .map(|(&to, &from)| CompletionItem {
+                label: format!("<{from}>::into({from})"),
+                kind: Some(CompletionItemKind::FUNCTION),
+                detail: Some(format!("Cast into type `{to}`",)),
+                documentation: None,
+                insert_text: Some(format!("{from}>::into(${{1:{from}}})")),
+                insert_text_format: Some(InsertTextFormat::SNIPPET),
+                ..Default::default()
+            })
+            .collect::<Vec<_>>();
+
         Self {
             jets: jets_completion,
             builtin: builtin_completion,
             modules: modules_completion,
+            type_casts: type_casts_completion,
         }
-    }
-
-    /// Return jets completions.
-    pub fn jets(&self) -> &[CompletionItem] {
-        &self.jets
-    }
-
-    /// Return builtin functions completions.
-    pub fn builtins(&self) -> &[CompletionItem] {
-        &self.builtin
-    }
-
-    /// Return builtin functions completions.
-    pub fn modules(&self) -> &[CompletionItem] {
-        &self.modules
     }
 
     /// Get generic functions completions.
@@ -74,26 +78,36 @@ impl CompletionProvider {
             .collect()
     }
 
+    /// Return completions based on line and functions provided.
     pub fn process_completions(
         &self,
         prefix: &str,
         functions: &[(&Function, &str)],
     ) -> Option<Vec<CompletionItem>> {
         if let Some(last) = prefix
-            .rsplit(|c: char| !c.is_alphanumeric() && c != ':')
+            .rsplit(|c: char| !c.is_alphanumeric() && c != ':' && c != '<')
             .next()
         {
-            if last == "jet::" || last.starts_with("jet::") {
-                return Some(self.jets().to_vec());
+            if last.starts_with("jet::") {
+                return Some(self.jets.clone());
+            }
+            if last.starts_with('<') {
+                return Some(self.type_casts.clone());
             }
         }
+
         if prefix.ends_with(':') {
             return None;
         }
-
         let mut completions = CompletionProvider::get_function_completions(functions);
-        completions.extend_from_slice(self.builtins());
-        completions.extend_from_slice(self.modules());
+        // return only function completions in case of '<' symbol in `for_while`, `array_fold` and
+        // `fold`
+        if prefix.ends_with('<') {
+            return Some(completions);
+        }
+
+        completions.extend_from_slice(&self.builtin);
+        completions.extend_from_slice(&self.modules);
 
         Some(completions)
     }
