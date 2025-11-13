@@ -47,9 +47,11 @@ impl CompletionProvider {
         .collect();
 
         let type_casts_completion = type_cast::get_integer_type_casts()
+        let type_casts_completion = type_cast::TYPE_CASTS
             .iter()
             .map(|(&to, &from)| CompletionItem {
                 label: format!("<{from}>::into({from})"),
+                label: format!("{to} <- {from}"),
                 kind: Some(CompletionItemKind::FUNCTION),
                 detail: Some(format!("Cast into type `{to}`",)),
                 documentation: None,
