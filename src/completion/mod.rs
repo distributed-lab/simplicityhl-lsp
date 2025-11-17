@@ -1,4 +1,3 @@
-use logos::Logos;
 use simplicityhl::parse::Function;
 
 pub mod builtin;
@@ -12,6 +11,7 @@ use tower_lsp_server::lsp_types::{
 };
 
 use tokens::Token;
+use tokens::lex_tokens;
 
 /// Build and provide [`CompletionItem`] for jets and builtin functions.
 #[derive(Debug)]
@@ -88,13 +88,28 @@ impl CompletionProvider {
         prefix: &str,
         functions: &[(&Function, &str)],
     ) -> Option<Vec<CompletionItem>> {
-        let mut tokens: Vec<Token> = Token::lexer(prefix).filter_map(Result::ok).collect();
-        tokens.reverse();
+        let tokens = match lex_tokens(prefix) {
+            Ok((_, mut t)) => {
+                t.reverse();
+                t
+            }
+            Err(_) => return None,
+        };
 
         match tokens.as_slice() {
             [Token::Jet, ..] => Some(self.jets.clone()),
 
+            // Case for ": type = <", so we can return completion for specific type, or generic one
+            // if it is not on default type casts.
             [
+                Token::OpenAngle,
+                Token::EqualSign,
+                Token::Identifier(type_name),
+                Token::Colon,
+                ..,
+            ]
+            | [
+                Token::Identifier(_) | Token::OpenBracket,
                 Token::OpenAngle,
                 Token::EqualSign,
                 Token::Identifier(type_name),
@@ -117,6 +132,7 @@ impl CompletionProvider {
                 Some(self.type_casts.clone())
             }
 
+            // Case for ">::" -- this structure is only present for into keyword.
             [Token::DoubleColon, Token::CloseAngle, ..] => Some(vec![CompletionItem {
                 label: "into".to_string(),
                 kind: Some(CompletionItemKind::FUNCTION),
@@ -131,11 +147,6 @@ impl CompletionProvider {
 
             _ => {
                 let mut completions = CompletionProvider::get_function_completions(functions);
-                // return only function completions in case of '<' symbol in `for_while`, `array_fold` and
-                // `fold`
-                if prefix.ends_with('<') {
-                    return Some(completions);
-                }
 
                 completions.extend_from_slice(&self.builtin);
                 completions.extend_from_slice(&self.modules);
