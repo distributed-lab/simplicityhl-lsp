@@ -16,6 +16,7 @@ thiserror = "2.0.17"
 ropey = "1.6.1"
 miniscript = "12"
 simplicityhl = { git = "https://github.com/BlockstreamResearch/SimplicityHL.git", rev = "e68e1c6" }
+nom = "8.0.0"
 
 [lints.rust]
 unsafe_code = "deny"
